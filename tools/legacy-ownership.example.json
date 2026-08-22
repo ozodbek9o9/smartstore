@@ -1,0 +1,17 @@
+{
+  "products": {
+    "legacyProductDocumentId": "firebaseAuthUid"
+  },
+  "customers": {
+    "legacyCustomerDocumentId": "firebaseAuthUid"
+  },
+  "categories": {
+    "legacyCategoryDocumentId": "firebaseAuthUid"
+  },
+  "sales": {
+    "legacySaleDocumentId": "firebaseAuthUid"
+  },
+  "draft_products": {
+    "legacyDraftDocumentId": "firebaseAuthUid"
+  }
+}

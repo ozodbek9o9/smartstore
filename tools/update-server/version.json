@@ -1,0 +1,10 @@
+{
+  "version": "1.0.1",
+  "downloadUrl": "https://neowhite-studio.vercel.app/smartstore/SmartStore-1.0.1.zip",
+  "sha256": "8af4c076cdaa784f5728776f67ce8b23a7d361a70081839b053528c919cebf95",
+  "releaseNotes": [
+    "Fixed inventory calculation bug",
+    "Fixed debt tracking bug"
+  ],
+  "mandatory": false
+}
