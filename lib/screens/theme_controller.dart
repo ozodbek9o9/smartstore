@@ -3,7 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// ───────────────────────────────────────────────────────────────
 /// ThemeController — butun ilova bo'ylab dark mode holatini
-/// bitta joydan boshqaradi. LayoutPage, SettingsPage, PinLockPage
+/// bitta joydan boshqaradi. LayoutPage va SettingsPage
 /// va boshqa har qanday sahifa shu controllerga obuna bo'lib,
 /// dark mode o'zgarganda avtomatik qayta chiziladi (rebuild).
 /// ───────────────────────────────────────────────────────────────

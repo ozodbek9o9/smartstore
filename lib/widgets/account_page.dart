@@ -28,22 +28,12 @@ class _AccountPageState extends State<AccountPage> {
   final _newPasswordCtrl = TextEditingController();
   final _renewPasswordCtrl = TextEditingController();
 
-  // Local Entrance PIN
-  final _currentPinCtrl = TextEditingController();
-  final _newPinCtrl = TextEditingController();
-  final _renewPinCtrl = TextEditingController();
-
   bool _obscureCurrentPass = true;
   bool _obscureNewPass = true;
   bool _obscureRenewPass = true;
   bool _obscureDisplayPass = true;
 
-  bool _obscureCurrentPin = true;
-  bool _obscureNewPin = true;
-  bool _obscureRenewPin = true;
-
   String _dbPassword = '';
-  String _localPin = '';
 
   @override
   void initState() {
@@ -64,9 +54,7 @@ class _AccountPageState extends State<AccountPage> {
 
   Future<void> _loadData() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       _userId = TenantFirestore.uid;
-      _localPin = prefs.getString('app_pin') ?? '';
 
       if (_userId.isNotEmpty) {
         final doc = await TenantFirestore.userDocument.get();
@@ -136,28 +124,6 @@ class _AccountPageState extends State<AccountPage> {
           _newPasswordCtrl.clear();
           _renewPasswordCtrl.clear();
         }
-      }
-
-      // PIN Change Logic
-      if (_newPinCtrl.text.isNotEmpty) {
-        if (_localPin.isNotEmpty && _currentPinCtrl.text != _localPin) {
-          _showSnackBar('account.err_incorrect_pin'.tr(), isError: true);
-          return;
-        }
-        if (_newPinCtrl.text != _renewPinCtrl.text) {
-          _showSnackBar('account.err_pins_mismatch'.tr(), isError: true);
-          return;
-        }
-        if (_newPinCtrl.text.length != 6) {
-          _showSnackBar('account.err_pin_length'.tr(), isError: true);
-          return;
-        }
-        await prefs.setString('app_pin', _newPinCtrl.text);
-        await prefs.setBool('has_pin', true);
-        _localPin = _newPinCtrl.text;
-        _currentPinCtrl.clear();
-        _newPinCtrl.clear();
-        _renewPinCtrl.clear();
       }
 
       _showSnackBar('account.success_saved'.tr());
@@ -569,190 +535,6 @@ class _AccountPageState extends State<AccountPage> {
                         ),
                       ),
                       const SizedBox(height: 20),
-
-                      // --- Local Entrance Pin Card ---
-                      Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: cardColor,
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: hairline),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  sectionHeader(
-                                    Icons.security,
-                                    const Color(0xFF4318FF),
-                                    const Color(0xFFF4F7FE),
-                                    'account.pin_title'.tr(),
-                                    'account.pin_desc'.tr(),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            inputLabel(
-                                              'account.current_pin'.tr(),
-                                            ),
-                                            TextField(
-                                              controller: _currentPinCtrl,
-                                              obscureText: _obscureCurrentPin,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              maxLength: 6,
-                                              style: TextStyle(
-                                                color: textPrimary,
-                                              ),
-                                              decoration: inputDecor(
-                                                'account.enter_current_pin'
-                                                    .tr(),
-                                                Icons.lock_outline,
-                                                suffixIcon: IconButton(
-                                                  icon: Icon(
-                                                    _obscureCurrentPin
-                                                        ? Icons.visibility
-                                                        : Icons.visibility_off,
-                                                  ),
-                                                  onPressed: () => setState(
-                                                    () => _obscureCurrentPin =
-                                                        !_obscureCurrentPin,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 20),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            inputLabel('account.new_pin'.tr()),
-                                            TextField(
-                                              controller: _newPinCtrl,
-                                              obscureText: _obscureNewPin,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              maxLength: 6,
-                                              style: TextStyle(
-                                                color: textPrimary,
-                                              ),
-                                              decoration: inputDecor(
-                                                'account.enter_new_pin'.tr(),
-                                                Icons.lock_outline,
-                                                suffixIcon: IconButton(
-                                                  icon: Icon(
-                                                    _obscureNewPin
-                                                        ? Icons.visibility
-                                                        : Icons.visibility_off,
-                                                  ),
-                                                  onPressed: () => setState(
-                                                    () => _obscureNewPin =
-                                                        !_obscureNewPin,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            inputLabel(
-                                              'account.renew_pin'.tr(),
-                                            ),
-                                            TextField(
-                                              controller: _renewPinCtrl,
-                                              obscureText: _obscureRenewPin,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              maxLength: 6,
-                                              style: TextStyle(
-                                                color: textPrimary,
-                                              ),
-                                              decoration: inputDecor(
-                                                'account.reenter_new_pin'.tr(),
-                                                Icons.lock_outline,
-                                                suffixIcon: IconButton(
-                                                  icon: Icon(
-                                                    _obscureRenewPin
-                                                        ? Icons.visibility
-                                                        : Icons.visibility_off,
-                                                  ),
-                                                  onPressed: () => setState(
-                                                    () => _obscureRenewPin =
-                                                        !_obscureRenewPin,
-                                                  ),
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      const SizedBox(width: 20),
-                                      const Expanded(child: SizedBox()),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // Shield Illustration
-                            Expanded(
-                              flex: 1,
-                              child: Center(
-                                child: Container(
-                                  margin: const EdgeInsets.only(top: 40),
-                                  width: 140,
-                                  height: 140,
-                                  decoration: BoxDecoration(
-                                    color: const Color(
-                                      0xFF4318FF,
-                                    ).withOpacity(0.05),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Center(
-                                    child: Container(
-                                      width: 100,
-                                      height: 100,
-                                      decoration: BoxDecoration(
-                                        color: const Color(
-                                          0xFF4318FF,
-                                        ).withOpacity(0.1),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.shield_rounded,
-                                        size: 60,
-                                        color: Color(0xFF4318FF),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
 
                       // Save Button
                       Align(

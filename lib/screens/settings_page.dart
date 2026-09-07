@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -21,20 +20,13 @@ class _SettingsPageState extends State<SettingsPage> {
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
-  final _currentPinController = TextEditingController();
-  final _newPinController = TextEditingController();
-  final _confirmPinController = TextEditingController();
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _obscureCurrentPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
-  bool _obscureCurrentPin = true;
-  bool _obscureNewPin = true;
-  bool _obscureConfirmPin = true;
   String _accountPassword = '';
-  String _localPin = '';
 
   @override
   void initState() {
@@ -55,23 +47,17 @@ class _SettingsPageState extends State<SettingsPage> {
     _currentPasswordController.dispose();
     _newPasswordController.dispose();
     _confirmPasswordController.dispose();
-    _currentPinController.dispose();
-    _newPinController.dispose();
-    _confirmPinController.dispose();
     super.dispose();
   }
 
   Future<void> _loadAccount() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
       final document = await TenantFirestore.userDocument.get();
       final data = document.data() ?? const <String, dynamic>{};
       _fullNameController.text = data['fullName']?.toString() ?? '';
       _usernameController.text = data['username']?.toString() ?? '';
       _accountPassword = data['password']?.toString() ?? '';
       _currentPasswordController.text = _accountPassword;
-      _localPin = prefs.getString('app_pin') ?? '';
-      _currentPinController.text = _localPin;
     } catch (error) {
       debugPrint('Unable to load settings: $error');
     } finally {
@@ -98,8 +84,6 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       final passwordWasChanged = _newPasswordController.text.isNotEmpty;
-      final pinWasChanged = _newPinController.text.isNotEmpty;
-
       if (passwordWasChanged) {
         if (_currentPasswordController.text != _accountPassword) {
           _showMessage('account.err_incorrect_password'.tr(), isError: true);
@@ -107,21 +91,6 @@ class _SettingsPageState extends State<SettingsPage> {
         }
         if (_newPasswordController.text != _confirmPasswordController.text) {
           _showMessage('account.err_passwords_mismatch'.tr(), isError: true);
-          return;
-        }
-      }
-
-      if (pinWasChanged) {
-        if (_localPin.isNotEmpty && _currentPinController.text != _localPin) {
-          _showMessage('account.err_incorrect_pin'.tr(), isError: true);
-          return;
-        }
-        if (_newPinController.text != _confirmPinController.text) {
-          _showMessage('account.err_pins_mismatch'.tr(), isError: true);
-          return;
-        }
-        if (!RegExp(r'^\d{6}$').hasMatch(_newPinController.text)) {
-          _showMessage('account.err_pin_length'.tr(), isError: true);
           return;
         }
       }
@@ -143,15 +112,6 @@ class _SettingsPageState extends State<SettingsPage> {
         _confirmPasswordController.clear();
       }
 
-      if (pinWasChanged) {
-        await prefs.setString('app_pin', _newPinController.text);
-        await prefs.setBool('has_pin', true);
-        _localPin = _newPinController.text;
-        _currentPinController.clear();
-        _newPinController.clear();
-        _confirmPinController.clear();
-      }
-
       if (mounted) setState(() {});
       _showMessage('account.success_saved'.tr());
     } catch (error) {
@@ -162,21 +122,6 @@ class _SettingsPageState extends State<SettingsPage> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
-  }
-
-  Future<void> _showDisablePinDialog() async {
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => _DisablePinDialog(
-        localPin: _localPin,
-        onDisabled: () {
-          _localPin = '';
-          _currentPinController.clear();
-          if (mounted) setState(() {});
-        },
-        showMessage: _showMessage,
-      ),
-    );
   }
 
   Future<void> _showDeleteAccountDialog() async {
@@ -251,21 +196,16 @@ class _SettingsPageState extends State<SettingsPage> {
       required String hint,
       required bool obscure,
       required ValueChanged<bool> onObscureChanged,
-      bool pin = false,
     }) {
       return TextField(
         controller: controller,
         obscureText: obscure,
-        keyboardType: pin
-            ? TextInputType.number
-            : TextInputType.visiblePassword,
-        maxLength: pin ? 6 : null,
-        inputFormatters: pin ? [FilteringTextInputFormatter.digitsOnly] : null,
+        keyboardType: TextInputType.visiblePassword,
         style: TextStyle(color: textPrimary),
         decoration: inputDecoration(
           label,
           hint,
-          pin ? Icons.password_rounded : Icons.lock_outline_rounded,
+          Icons.lock_outline_rounded,
           suffixIcon: IconButton(
             tooltip: obscure
                 ? 'account.show_password'.tr()
@@ -277,7 +217,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   : Icons.visibility_outlined,
             ),
           ),
-        ).copyWith(counterText: pin ? '' : null),
+        ),
       );
     }
 
@@ -466,80 +406,6 @@ class _SettingsPageState extends State<SettingsPage> {
                                       ),
                                     ),
                                   ),
-                                  divider(),
-                                  Row(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Expanded(
-                                        child: sectionTitle(
-                                          Icons.shield_outlined,
-                                          const Color(0xFF2563EB),
-                                          'account.pin_title'.tr(),
-                                          'account.pin_desc'.tr(),
-                                        ),
-                                      ),
-                                      if (_localPin.isNotEmpty)
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 10,
-                                            vertical: 6,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: const Color(
-                                              0xFF16A34A,
-                                            ).withOpacity(isDark ? 0.2 : 0.1),
-                                            borderRadius: BorderRadius.circular(
-                                              20,
-                                            ),
-                                          ),
-                                          child: Text(
-                                            'account.pin_enabled'.tr(),
-                                            style: const TextStyle(
-                                              color: Color(0xFF16A34A),
-                                              fontWeight: FontWeight.w700,
-                                              fontSize: 12,
-                                            ),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 22),
-                                  if (_localPin.isNotEmpty) ...[
-                                    passwordField(
-                                      controller: _currentPinController,
-                                      label: 'account.current_pin'.tr(),
-                                      hint: 'account.enter_current_pin'.tr(),
-                                      obscure: _obscureCurrentPin,
-                                      pin: true,
-                                      onObscureChanged: (value) => setState(
-                                        () => _obscureCurrentPin = value,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                  ],
-                                  pair(
-                                    passwordField(
-                                      controller: _newPinController,
-                                      label: 'account.new_pin'.tr(),
-                                      hint: 'account.enter_new_pin'.tr(),
-                                      obscure: _obscureNewPin,
-                                      pin: true,
-                                      onObscureChanged: (value) => setState(
-                                        () => _obscureNewPin = value,
-                                      ),
-                                    ),
-                                    passwordField(
-                                      controller: _confirmPinController,
-                                      label: 'account.renew_pin'.tr(),
-                                      hint: 'account.reenter_new_pin'.tr(),
-                                      obscure: _obscureConfirmPin,
-                                      pin: true,
-                                      onObscureChanged: (value) => setState(
-                                        () => _obscureConfirmPin = value,
-                                      ),
-                                    ),
-                                  ),
                                   const SizedBox(height: 26),
                                   Wrap(
                                     spacing: 12,
@@ -574,32 +440,6 @@ class _SettingsPageState extends State<SettingsPage> {
                                           'account.save_changes'.tr(),
                                         ),
                                       ),
-                                      if (_localPin.isNotEmpty)
-                                        OutlinedButton.icon(
-                                          onPressed: _isSaving
-                                              ? null
-                                              : _showDisablePinDialog,
-                                          style: OutlinedButton.styleFrom(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 20,
-                                              vertical: 16,
-                                            ),
-                                            foregroundColor: Theme.of(
-                                              context,
-                                            ).colorScheme.error,
-                                            side: BorderSide(
-                                              color: Theme.of(
-                                                context,
-                                              ).colorScheme.error,
-                                            ),
-                                          ),
-                                          icon: const Icon(
-                                            Icons.lock_open_rounded,
-                                          ),
-                                          label: Text(
-                                            'account.disable_pin'.tr(),
-                                          ),
-                                        ),
                                     ],
                                   ),
                                   divider(),
@@ -640,148 +480,6 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
             ),
-    );
-  }
-}
-
-class _DisablePinDialog extends StatefulWidget {
-  final String localPin;
-  final VoidCallback onDisabled;
-  final void Function(String message, {bool isError}) showMessage;
-
-  const _DisablePinDialog({
-    required this.localPin,
-    required this.onDisabled,
-    required this.showMessage,
-  });
-
-  @override
-  State<_DisablePinDialog> createState() => _DisablePinDialogState();
-}
-
-class _DisablePinDialogState extends State<_DisablePinDialog> {
-  final _pinController = TextEditingController();
-  bool _obscurePin = true;
-  bool _isSubmitting = false;
-
-  @override
-  void dispose() {
-    _pinController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colors = Theme.of(context).colorScheme;
-
-    return AlertDialog(
-      backgroundColor: isDark ? const Color(0xFF1E293B) : Colors.white,
-      surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-      title: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-              color: colors.error.withOpacity(isDark ? 0.2 : 0.1),
-              borderRadius: BorderRadius.circular(13),
-            ),
-            child: Icon(Icons.lock_open_rounded, color: colors.error),
-          ),
-          const SizedBox(width: 12),
-          Expanded(child: Text('account.disable_pin_title'.tr())),
-        ],
-      ),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'account.disable_pin_subtitle'.tr(),
-              style: TextStyle(
-                color: isDark
-                    ? const Color(0xFF94A3B8)
-                    : const Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _pinController,
-              obscureText: _obscurePin,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              decoration: InputDecoration(
-                labelText: 'account.current_pin'.tr(),
-                hintText: 'account.enter_current_pin'.tr(),
-                counterText: '',
-                prefixIcon: const Icon(Icons.lock_outline_rounded),
-                suffixIcon: IconButton(
-                  tooltip: _obscurePin
-                      ? 'account.show_password'.tr()
-                      : 'account.hide_password'.tr(),
-                  icon: Icon(
-                    _obscurePin
-                        ? Icons.visibility_off_outlined
-                        : Icons.visibility_outlined,
-                  ),
-                  onPressed: () => setState(() => _obscurePin = !_obscurePin),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-      actionsPadding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
-      actions: [
-        TextButton(
-          onPressed: _isSubmitting ? null : () => Navigator.pop(context),
-          child: Text('account.cancel'.tr()),
-        ),
-        FilledButton.icon(
-          style: FilledButton.styleFrom(
-            backgroundColor: colors.error,
-            foregroundColor: colors.onError,
-          ),
-          onPressed: _isSubmitting
-              ? null
-              : () async {
-                  if (_pinController.text != widget.localPin) {
-                    widget.showMessage(
-                      'account.err_incorrect_pin'.tr(),
-                      isError: true,
-                    );
-                    return;
-                  }
-                  setState(() => _isSubmitting = true);
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('app_pin');
-                  await prefs.setBool('has_pin', false);
-
-                  if (mounted) {
-                    Navigator.pop(context);
-                    widget.onDisabled();
-                    widget.showMessage('account.pin_disabled'.tr());
-                  }
-                },
-          icon: _isSubmitting
-              ? const SizedBox(
-                  height: 16,
-                  width: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.lock_open_rounded),
-          label: Text('account.disable_pin'.tr()),
-        ),
-      ],
     );
   }
 }

@@ -13,7 +13,6 @@ import '../main.dart' show SmartStoreColors;
 import '../utils/activity_logger.dart';
 import '../utils/notification_controller.dart';
 import '../utils/tenant_firestore.dart';
-import '../widgets/pin_lock_page.dart';
 import 'home_page.dart';
 import 'selling_page.dart';
 import 'adding_page.dart';
@@ -144,40 +143,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
   void _navigateToSection(_Section section) {
     setState(() => _selectedSection = section);
-  }
-
-  // ── Lock App ──
-  Future<void> _lockApp() async {
-    final prefs = await SharedPreferences.getInstance();
-    final hasPin = prefs.getBool('has_pin') ?? false;
-
-    if (hasPin) {
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (context, animation, secondaryAnimation) =>
-                const PinLockPage(),
-            transitionsBuilder:
-                (context, animation, secondaryAnimation, child) {
-                  return FadeTransition(opacity: animation, child: child);
-                },
-            transitionDuration: const Duration(milliseconds: 300),
-          ),
-        );
-      }
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('snackbar.no_pin'.tr()),
-          backgroundColor: SmartStoreColors.danger,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    }
   }
 
   // ── Logout ──
@@ -1363,15 +1328,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                             : 'topbar.dark_mode'.tr(context: context),
                       ),
                       const SizedBox(width: 8),
-
-                      // Lock Button
-                      _TopBarIconButton(
-                        icon: Icons.lock_outline_rounded,
-                        isDark: isDark,
-                        onTap: _lockApp,
-                        tooltip: 'topbar.lock_app'.tr(context: context),
-                      ),
-                      const SizedBox(width: 14),
 
                       // ── Online Status Badge ──
                       AnimatedContainer(

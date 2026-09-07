@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../config/update_environment.dart';
 import '../models/update_info.dart';
 
 enum UpdateStatus {
@@ -27,7 +28,7 @@ class UpdateService extends ChangeNotifier {
   }) : _client = client ?? http.Client();
 
   static const defaultManifestUri =
-      'https://neowhite-studio.vercel.app/smartstore/version.json';
+      'https://fra.cloud.appwrite.io/v1/storage/buckets/6a89db6600013a5d5784/files/version-json/view?project=6a89daa60002f8486d30';
   static const currentAppVersion = String.fromEnvironment(
     'SMARTSTORE_VERSION',
     defaultValue: '1.0.0',
@@ -63,7 +64,7 @@ class UpdateService extends ChangeNotifier {
         throw const FormatException('Manifest URL must use HTTPS');
       }
       final response = await _client
-          .get(uri, headers: {'Accept': 'application/json'})
+          .get(uri, headers: _appwriteHeaders)
           .timeout(const Duration(seconds: 12));
       if (response.statusCode != 200)
         throw HttpException('Update server unavailable');
@@ -101,7 +102,8 @@ class UpdateService extends ChangeNotifier {
         'smartstore-update-',
       );
       final packageFile = File('${temporaryDirectory.path}\\update.zip');
-      final request = http.Request('GET', candidate.downloadUrl);
+      final request = http.Request('GET', candidate.downloadUrl)
+        ..headers.addAll(_appwriteHeaders);
       final response = await _client
           .send(request)
           .timeout(const Duration(minutes: 10));
@@ -193,4 +195,9 @@ class UpdateService extends ChangeNotifier {
       int.parse(match.group(3)!),
     ];
   }
+
+  static const _appwriteHeaders = {
+    'Accept': 'application/json',
+    'X-Appwrite-Project': UpdateEnvironment.appwriteProjectId,
+  };
 }

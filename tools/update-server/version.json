@@ -1,6 +1,6 @@
 {
   "version": "1.0.1",
-  "downloadUrl": "https://neowhite-studio.vercel.app/smartstore/SmartStore-1.0.1.zip",
+  "downloadUrl": "https://fra.cloud.appwrite.io/v1/storage/buckets/6a89db6600013a5d5784/files/smartstore-1-0-1/download?project=6a89daa60002f8486d30",
   "sha256": "8af4c076cdaa784f5728776f67ce8b23a7d361a70081839b053528c919cebf95",
   "releaseNotes": [
     "Fixed inventory calculation bug",
