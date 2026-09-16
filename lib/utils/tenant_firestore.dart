@@ -17,6 +17,12 @@ class TenantFirestore {
   static DocumentReference<Map<String, dynamic>> get userDocument =>
       FirebaseFirestore.instance.collection('users').doc(uid);
 
+  static DocumentReference<Map<String, dynamic>> usernameDocument(
+    String username,
+  ) => FirebaseFirestore.instance
+      .collection('usernames')
+      .doc(username.trim().toLowerCase());
+
   static CollectionReference<Map<String, dynamic>> collection(String name) =>
       userDocument.collection(name);
 
@@ -26,17 +32,17 @@ class TenantFirestore {
       collection('categories');
   static CollectionReference<Map<String, dynamic>> get customers =>
       collection('customers');
-  
-  static CollectionReference<Map<String, dynamic>> customerDebts(String customerId) =>
-      customers.doc(customerId).collection('debts');
-      
-  static CollectionReference<Map<String, dynamic>> customerPayments(String customerId) =>
-      customers.doc(customerId).collection('payments');
+
+  static CollectionReference<Map<String, dynamic>> customerDebts(
+    String customerId,
+  ) => customers.doc(customerId).collection('debts');
+
+  static CollectionReference<Map<String, dynamic>> customerPayments(
+    String customerId,
+  ) => customers.doc(customerId).collection('payments');
 
   static CollectionReference<Map<String, dynamic>> get sales =>
       collection('sales');
-  static CollectionReference<Map<String, dynamic>> get activityLogs =>
-      collection('activity_logs');
   static CollectionReference<Map<String, dynamic>> get sellingCarts =>
       collection('sellingCarts');
   static CollectionReference<Map<String, dynamic>> get draftProducts =>

@@ -31,7 +31,6 @@ class _HomePageState extends State<HomePage>
   List<_Document> _customers = const [];
   List<_Document> _categories = const [];
   List<_Document> _entries = const [];
-  List<_Document> _activityLogs = const [];
   final Map<String, List<_Document>> _customerDebts = {};
   final Map<String, List<_Document>> _customerPayments = {};
   bool _loading = true;
@@ -80,7 +79,6 @@ class _HomePageState extends State<HomePage>
     listen(TenantFirestore.sales, (value) => _sales = value);
     listen(TenantFirestore.categories, (value) => _categories = value);
     listen(TenantFirestore.inventoryEntries, (value) => _entries = value);
-    listen(TenantFirestore.activityLogs, (value) => _activityLogs = value);
     _subscriptions.add(
       TenantFirestore.customers.snapshots().listen(
         (snapshot) {
@@ -169,7 +167,6 @@ class _HomePageState extends State<HomePage>
       customers: _customers,
       categories: _categories,
       entries: _entries,
-      activityLogs: _activityLogs,
       customerDebts: _customerDebts,
       customerPayments: _customerPayments,
     );
@@ -2019,7 +2016,6 @@ class _DashboardOverview {
     required List<_Document> customers,
     required List<_Document> categories,
     required List<_Document> entries,
-    required List<_Document> activityLogs,
     required Map<String, List<_Document>> customerDebts,
     required Map<String, List<_Document>> customerPayments,
   }) {
@@ -2179,7 +2175,6 @@ class _DashboardOverview {
       sales,
       customers,
       entries,
-      activityLogs,
       customerPayments,
     );
 
@@ -2243,7 +2238,6 @@ List<_Activity> _buildActivities(
   List<_Document> sales,
   List<_Document> customers,
   List<_Document> entries,
-  List<_Document> logs,
   Map<String, List<_Document>> payments,
 ) {
   final values = <_Activity>[];

@@ -50,6 +50,10 @@ class AuthService {
         throw StateError('Firebase Authentication did not return a user.');
       }
 
+      await TenantFirestore.usernameDocument(
+        normalizedUsername,
+      ).set({'uid': user.uid});
+
       try {
         await TenantFirestore.userDocument.set({
           'uid': user.uid,
@@ -63,47 +67,15 @@ class AuthService {
       } catch (_) {
         // Do not leave a partially provisioned account if its tenant profile
         // cannot be created.
+        await TenantFirestore.usernameDocument(normalizedUsername).delete();
         await user.delete();
         await _auth.signOut();
         rethrow;
       }
 
       return AuthResult(user: user, created: true);
-    } on FirebaseAuthException catch (error) {
-      if (error.code != 'email-already-in-use') rethrow;
-
-      try {
-        final credential = await _auth.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-        final user = credential.user;
-        if (user == null) {
-          throw StateError('Firebase Authentication did not return a user.');
-        }
-
-        await TenantFirestore.userDocument.set({
-          'uid': user.uid,
-          'username': normalizedUsername,
-          'usernameLower': normalizedUsername.toLowerCase(),
-          'fullName': fullName.trim(),
-          'password': password,
-          'lastLogin': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-        return AuthResult(user: user, created: false);
-      } on FirebaseAuthException catch (signInError) {
-        if (signInError.code == 'wrong-password' ||
-            signInError.code == 'invalid-credential' ||
-            signInError.code == 'user-not-found') {
-          rethrow;
-        }
-
-        throw FirebaseAuthException(
-          code: 'account-exists',
-          message:
-              'This account already exists in Firebase Auth. Please use the correct password or reset it.',
-        );
-      }
+    } on FirebaseAuthException {
+      rethrow;
     }
   }
 

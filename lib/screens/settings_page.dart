@@ -539,7 +539,6 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
       TenantFirestore.customers,
       TenantFirestore.categories,
       TenantFirestore.sales,
-      TenantFirestore.activityLogs,
       TenantFirestore.sellingCarts,
       TenantFirestore.draftProducts,
       TenantFirestore.settings,

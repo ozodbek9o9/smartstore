@@ -69,8 +69,6 @@ class _ProductAggregate {
   num totalOriginalCost = 0;
   num totalProfit = 0;
   num unitOriginalPrice = 0;
-  num debtValue = 0;
-  num nonDebtValue = 0;
 
   _ProductAggregate({required this.productName, this.unitOriginalPrice = 0});
 }
@@ -84,7 +82,6 @@ class _PeriodBucket {
   num outgoingSales = 0;
   num outgoingProfit = 0;
   final outgoingProductIds = <String>{};
-  num debt = 0;
 }
 
 class _ChartPoint {
@@ -94,7 +91,6 @@ class _ChartPoint {
   final num incoming;
   final num outgoing;
   final num profit;
-  final num debt;
   final bool isStartOfMonth;
 
   _ChartPoint({
@@ -104,7 +100,6 @@ class _ChartPoint {
     required this.incoming,
     required this.outgoing,
     required this.profit,
-    required this.debt,
     this.isStartOfMonth = false,
   });
 }
@@ -113,7 +108,6 @@ class _MMAcc {
   num incoming = 0;
   num outgoing = 0;
   num profit = 0;
-  num debt = 0;
 }
 
 class _WeekDayPoint {
@@ -449,19 +443,6 @@ class _FinancePageState extends State<FinancePage> {
       return DateTime.fromMillisecondsSinceEpoch(0);
     }
 
-    bool parseBool(dynamic v) {
-      if (v == null) return false;
-      if (v is bool) return v;
-      if (v is num) return v != 0;
-      final s = v.toString().toLowerCase().trim();
-      return s == 'true' ||
-          s == 'yes' ||
-          s == '1' ||
-          s == 'debt' ||
-          s == 'qarz' ||
-          s == 'credit';
-    }
-
     String monthKey(DateTime d) =>
         '${d.year}-${d.month.toString().padLeft(2, '0')}';
 
@@ -475,15 +456,8 @@ class _FinancePageState extends State<FinancePage> {
       final sellingPrice = parseNum(data['sellingPrice']);
       final ts = parseDate(data['timestamp']);
       final user = (data['user'] as String?) ?? 'Unknown';
-      final isDebtPurchase =
-          type == 'incoming' &&
-          (parseBool(data['isDebtPurchase']) ||
-              parseBool(data['isDebt']) ||
-              parseBool(data['onCredit']) ||
-              (data['status']?.toString().toLowerCase() == 'debt'));
       final isSale = type == 'outgoing';
       final isAdjustment = type == 'adjustment_outgoing';
-      final isDebtSale = isSale && parseBool(data['isDebtSale']);
       final inUiRange = !ts.isBefore(uiRange.start) && !ts.isAfter(uiRange.end);
 
       final dk = _dayKey(ts);
@@ -526,11 +500,6 @@ class _FinancePageState extends State<FinancePage> {
           agg.quantity += safeQty;
           agg.totalValue += safeSellingValue;
           agg.totalOriginalCost += safeValue;
-          if (isDebtPurchase) {
-            agg.debtValue += safeSellingValue;
-          } else {
-            agg.nonDebtValue += safeSellingValue;
-          }
           if (originalPrice > 0) agg.unitOriginalPrice = originalPrice;
         }
 
@@ -570,9 +539,6 @@ class _FinancePageState extends State<FinancePage> {
         dayBucket.outgoingCost += safeCost;
         dayBucket.outgoingSales += safeSale;
         dayBucket.outgoingProfit += totalProfit;
-        if (isDebtSale) {
-          dayBucket.debt += safeSale;
-        }
         dayBucket.outgoingProductIds.add(productId);
         weekBucket.outgoingQty += safeQty;
         weekBucket.outgoingCost += safeCost;
@@ -582,9 +548,6 @@ class _FinancePageState extends State<FinancePage> {
         if (mBucket != null) {
           mBucket.outgoing += safeSale;
           mBucket.profit += totalProfit;
-          if (isDebtSale) {
-            mBucket.debt += safeSale;
-          }
         }
 
         if (inUiRange) {
@@ -600,11 +563,6 @@ class _FinancePageState extends State<FinancePage> {
           agg.totalOriginalCost += signedCost;
           agg.totalProfit += signedProfit;
           if (originalPrice > 0) agg.unitOriginalPrice = originalPrice;
-          if (isDebtSale) {
-            agg.debtValue += safeSale;
-          } else {
-            agg.nonDebtValue += safeSale;
-          }
         }
 
         logs.add(
@@ -638,7 +596,6 @@ class _FinancePageState extends State<FinancePage> {
           incoming: b?.incomingValue ?? 0,
           outgoing: b?.outgoingSales ?? 0,
           profit: b?.outgoingProfit ?? 0,
-          debt: b?.debt ?? 0,
           isStartOfMonth: isStartOfMonth,
         ),
       );
@@ -906,7 +863,7 @@ class _FinancePageState extends State<FinancePage> {
                 boxShadow: isSelected
                     ? [
                         BoxShadow(
-                          color: const Color(0xFF2563EB).withOpacity(0.2),
+                          color: const Color(0xFF2563EB).withValues(alpha: 0.2),
                           blurRadius: 10,
                           offset: const Offset(0, 2),
                         ),
@@ -1099,7 +1056,7 @@ class _FinancePageState extends State<FinancePage> {
         border: Border.all(color: borderColor),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 16,
             offset: const Offset(0, 4),
           ),
@@ -1122,7 +1079,7 @@ class _FinancePageState extends State<FinancePage> {
                   borderRadius: BorderRadius.circular(12),
                   boxShadow: [
                     BoxShadow(
-                      color: iconBg.withOpacity(0.3),
+                      color: iconBg.withValues(alpha: 0.3),
                       blurRadius: 10,
                       offset: const Offset(0, 3),
                     ),
@@ -1256,7 +1213,6 @@ class _FinancePageState extends State<FinancePage> {
     final cIncoming = const Color(0xFF2563EB);
     final cOutgoing = const Color(0xFFF59E0B);
     final cProfit = const Color(0xFF10B981);
-    final cDebt = const Color(0xFFEF4444);
 
     if (_chartPoints.isEmpty) {
       return _buildCardContainer(
@@ -1293,7 +1249,7 @@ class _FinancePageState extends State<FinancePage> {
     num minV = 0;
     num maxV = 1;
     for (final p in _chartPoints) {
-      for (final v in [p.incoming, p.outgoing, p.profit, p.debt]) {
+      for (final v in [p.incoming, p.outgoing, p.profit]) {
         final d = v.toDouble();
         if (d.isNaN || d.isInfinite) continue;
         if (d < minV) minV = d;
@@ -1341,7 +1297,6 @@ class _FinancePageState extends State<FinancePage> {
     final spotsIncoming = <FlSpot>[];
     final spotsOutgoing = <FlSpot>[];
     final spotsProfit = <FlSpot>[];
-    final spotsDebt = <FlSpot>[];
     final monthFullTitles = <String>[
       _t('finance.month.1', 'Yanvar'),
       _t('finance.month.2', 'Fevral'),
@@ -1366,7 +1321,6 @@ class _FinancePageState extends State<FinancePage> {
       spotsIncoming.add(FlSpot(x, clampY(p.incoming)));
       spotsOutgoing.add(FlSpot(x, clampY(p.outgoing)));
       spotsProfit.add(FlSpot(x, clampY(p.profit)));
-      spotsDebt.add(FlSpot(x, clampY(p.debt)));
     }
 
     LineChartBarData line({
@@ -1438,11 +1392,6 @@ class _FinancePageState extends State<FinancePage> {
                   _buildChartLegend(
                     cProfit,
                     _t('finance.chart.profit', 'Jami foyda'),
-                    textSecondary,
-                  ),
-                  _buildChartLegend(
-                    cDebt,
-                    _t('finance.chart.debt', 'Jami qarz'),
                     textSecondary,
                   ),
                 ],
@@ -1560,7 +1509,6 @@ class _FinancePageState extends State<FinancePage> {
                               incoming: mb.incoming,
                               outgoing: mb.outgoing,
                               profit: mb.profit,
-                              debt: mb.debt,
                               title: monthName,
                               subtitle: _t(
                                 'finance.modal_month_subtitle',
@@ -1591,7 +1539,6 @@ class _FinancePageState extends State<FinancePage> {
                   line(key: 'inc', spots: spotsIncoming, color: cIncoming),
                   line(key: 'out', spots: spotsOutgoing, color: cOutgoing),
                   line(key: 'prf', spots: spotsProfit, color: cProfit),
-                  line(key: 'dbt', spots: spotsDebt, color: cDebt),
                 ],
                 lineTouchData: LineTouchData(
                   enabled: true,
@@ -1615,7 +1562,6 @@ class _FinancePageState extends State<FinancePage> {
                         incoming: p.incoming,
                         outgoing: p.outgoing,
                         profit: p.profit,
-                        debt: p.debt,
                         title: dateStr,
                         subtitle: _t(
                           'finance.modal_day_subtitle',
@@ -1634,110 +1580,34 @@ class _FinancePageState extends State<FinancePage> {
                     tooltipRoundedRadius: 10,
                     tooltipMargin: 12,
                     getTooltipItems: (touchedSpots) {
-                      if (touchedSpots.isEmpty) return [];
-                      final first = touchedSpots.first;
-                      int idx = first.spotIndex;
-                      if (idx < 0 || idx >= _chartPoints.length) {
-                        final roundIdx = first.x.round();
-                        if (roundIdx >= 0 && roundIdx < _chartPoints.length) {
-                          idx = roundIdx;
+                      return touchedSpots.map((spot) {
+                        int idx = spot.spotIndex;
+                        if (idx < 0 || idx >= _chartPoints.length) {
+                          final roundIdx = spot.x.round();
+                          if (roundIdx >= 0 && roundIdx < _chartPoints.length) {
+                            idx = roundIdx;
+                          }
                         }
-                      }
-                      if (idx < 0 || idx >= _chartPoints.length) return [];
-                      final p = _chartPoints[idx];
-                      final monthName =
-                          '${p.date.day.toString().padLeft(2, '0')}.${p.date.month.toString().padLeft(2, '0')}.${p.date.year}';
-                      return [
-                        LineTooltipItem(
-                          '$monthName\n',
+                        if (idx < 0 || idx >= _chartPoints.length) {
+                          return null;
+                        }
+                        final p = _chartPoints[idx];
+                        final monthName =
+                            '${p.date.day.toString().padLeft(2, '0')}.${p.date.month.toString().padLeft(2, '0')}.${p.date.year}';
+                        return LineTooltipItem(
+                          '$monthName\n${_formatMoney(spot.y)}',
                           TextStyle(
-                            color: textPrimary,
-                            fontSize: 12,
+                            color: spot.barIndex == 0
+                                ? cIncoming
+                                : spot.barIndex == 1
+                                ? cOutgoing
+                                : cProfit,
+                            fontSize: 11,
                             fontWeight: FontWeight.w800,
                             height: 1.35,
                           ),
-                          children: [
-                            TextSpan(
-                              text:
-                                  '${_t('finance.chart.incoming', 'Kirim')}: ',
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.4,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: '${_formatMoney(p.incoming)}\n',
-                                  style: TextStyle(
-                                    color: cIncoming,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            TextSpan(
-                              text:
-                                  '${_t('finance.chart.outgoing', 'Chiqim')}: ',
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.4,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: '${_formatMoney(p.outgoing)}\n',
-                                  style: TextStyle(
-                                    color: cOutgoing,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            TextSpan(
-                              text: '${_t('finance.chart.profit', 'Foyda')}: ',
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.4,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: '${_formatMoney(p.profit)}\n',
-                                  style: TextStyle(
-                                    color: p.profit >= 0 ? cProfit : cDebt,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            TextSpan(
-                              text: '${_t('finance.chart.debt', 'Qarz')}: ',
-                              style: TextStyle(
-                                color: textSecondary,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                                height: 1.4,
-                              ),
-                              children: [
-                                TextSpan(
-                                  text: _formatMoney(p.debt),
-                                  style: TextStyle(
-                                    color: cDebt,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ];
+                        );
+                      }).toList();
                     },
                   ),
                 ),
@@ -1778,7 +1648,6 @@ class _FinancePageState extends State<FinancePage> {
     required num incoming,
     required num outgoing,
     required num profit,
-    required num debt,
     required String title,
     required String subtitle,
   }) {
@@ -1800,10 +1669,9 @@ class _FinancePageState extends State<FinancePage> {
     const cIncoming = Color(0xFF2563EB);
     const cOutgoing = Color(0xFFF59E0B);
     const cProfit = Color(0xFF10B981);
-    const cDebt = Color(0xFFEF4444);
-    final profitColor = isProfit ? cProfit : cDebt;
+    final profitColor = isProfit ? cProfit : const Color(0xFFEF4444);
 
-    Widget _statRow({
+    Widget statRow({
       required Color color,
       required String label,
       required num amount,
@@ -1949,7 +1817,7 @@ class _FinancePageState extends State<FinancePage> {
                 ],
               ),
               const SizedBox(height: 22),
-              _statRow(
+              statRow(
                 color: cIncoming,
                 label: _t(
                   'finance.modal_incoming',
@@ -1958,13 +1826,13 @@ class _FinancePageState extends State<FinancePage> {
                 amount: incoming,
               ),
               const SizedBox(height: 10),
-              _statRow(
+              statRow(
                 color: cOutgoing,
                 label: _t('finance.modal_outgoing', 'Sotuv summasi (chiqim)'),
                 amount: outgoing,
               ),
               const SizedBox(height: 10),
-              _statRow(
+              statRow(
                 color: profitColor,
                 label: _t(
                   'finance.modal_profit',
@@ -1972,12 +1840,6 @@ class _FinancePageState extends State<FinancePage> {
                 ),
                 amount: profit,
                 amountColor: profitColor,
-              ),
-              const SizedBox(height: 10),
-              _statRow(
-                color: cDebt,
-                label: _t('finance.modal_debt', 'Jami qarz'),
-                amount: debt,
               ),
               const SizedBox(height: 22),
               SizedBox(
@@ -2475,7 +2337,7 @@ class _FinancePageState extends State<FinancePage> {
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
                     color: isDark
-                        ? const Color(0xFF064E3B).withOpacity(0.35)
+                        ? const Color(0xFF064E3B).withValues(alpha: 0.35)
                         : const Color(0xFFECFDF5),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
@@ -2731,7 +2593,7 @@ class _FinancePageState extends State<FinancePage> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.12),
+                  color: iconColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: iconColor, size: 18),
@@ -2889,7 +2751,7 @@ class _FinancePageState extends State<FinancePage> {
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           child: Divider(
                             height: 1,
-                            color: borderColor.withOpacity(0.4),
+                            color: borderColor.withValues(alpha: 0.4),
                           ),
                         ),
                     ],
@@ -3141,7 +3003,7 @@ class _FinancePageState extends State<FinancePage> {
                             decoration: BoxDecoration(
                               border: Border(
                                 top: BorderSide(
-                                  color: borderColor.withOpacity(0.4),
+                                  color: borderColor.withValues(alpha: 0.4),
                                   width: 1,
                                 ),
                               ),

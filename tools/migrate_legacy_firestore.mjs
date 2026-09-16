@@ -194,42 +194,6 @@ async function migrateBusinessCollections({
   return summary;
 }
 
-async function migrateActivityLogs({
-  db,
-  usernameToUid,
-  apply,
-  deleteLegacy,
-  ownerUid,
-}) {
-  const snapshot = await db.collection('activity_logs').get();
-  let copied = 0;
-  let skipped = 0;
-  let deleted = 0;
-  for (const document of snapshot.docs) {
-    const username = String(document.data().username ?? '').trim().toLowerCase();
-    const destinationUid = usernameToUid.get(username) ?? ownerUid;
-    if (!destinationUid) {
-      skipped += 1;
-      console.warn(`SKIP activity_logs/${document.id}: unknown owner.`);
-      continue;
-    }
-    const target = db.doc(`users/${destinationUid}/activity_logs/${document.id}`);
-    const status = await copyDocument({source: document, target, apply});
-    if (status === 'planned' || status === 'copied' || status === 'already-copied') {
-      copied += 1;
-    }
-    if (deleteLegacy && apply && (status === 'copied' || status === 'already-copied')) {
-      await document.ref.delete();
-      deleted += 1;
-    } else if (deleteLegacy && status === 'already-present') {
-      console.warn(
-        `NOT DELETED activity_logs/${document.id}: destination was not created by this migration.`,
-      );
-    }
-  }
-  return {total: snapshot.size, copied, skipped, deleted};
-}
-
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const ownership = await loadOwnership(options.ownershipFile);
@@ -250,14 +214,7 @@ async function main() {
     ownerUid: options.ownerUid,
     ownership,
   });
-  const activityLogs = await migrateActivityLogs({
-    db,
-    usernameToUid,
-    apply: options.apply,
-    deleteLegacy: options.deleteLegacy,
-    ownerUid: options.ownerUid,
-  });
-  console.table({users, activityLogs, ...business});
+  console.table({users, ...business});
 }
 
 main().catch((error) => {

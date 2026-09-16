@@ -1304,8 +1304,23 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               LineChartData(
                 lineTouchData: LineTouchData(
                   touchTooltipData: LineTouchTooltipData(
-                    getTooltipItems: (touchedSpots) =>
-                        touchedSpots.map((_) => null).toList(),
+                    getTooltipItems: (touchedSpots) => touchedSpots.map((spot) {
+                      final value = spot.y;
+                      final formatted = value.abs() >= 1000000
+                          ? '${(value / 1000000).toStringAsFixed(1)}M'
+                          : value.abs() >= 1000
+                          ? '${(value / 1000).toStringAsFixed(0)}K'
+                          : value.toStringAsFixed(0);
+                      return LineTooltipItem(
+                        formatted,
+                        TextStyle(
+                          color: spot.barIndex == 0
+                              ? Colors.blue
+                              : Colors.grey.shade400,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      );
+                    }).toList(),
                   ),
                   handleBuiltInTouches: true,
                   touchCallback:

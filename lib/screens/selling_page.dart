@@ -1657,26 +1657,34 @@ class _SellingPageState extends State<SellingPage> {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontWeight: total ? FontWeight.w700 : FontWeight.w500,
-            fontSize: total ? 15 : 13,
-            color: total
-                ? (isDark ? colors.onSurface : colors.onSurface)
-                : (isDark
-                      ? colors.onSurfaceVariant.withOpacity(0.6)
-                      : colors.onSurfaceVariant),
+        Expanded(
+          child: Text(
+            label,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: total ? FontWeight.w700 : FontWeight.w500,
+              fontSize: total ? 15 : 13,
+              color: total
+                  ? (isDark ? colors.onSurface : colors.onSurface)
+                  : (isDark
+                        ? colors.onSurfaceVariant.withOpacity(0.6)
+                        : colors.onSurfaceVariant),
+            ),
           ),
         ),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: total ? FontWeight.w800 : FontWeight.w600,
-            color: total
-                ? colors.primary
-                : (isDark ? colors.onSurface : colors.onSurface),
-            fontSize: total ? 16 : 13,
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontWeight: total ? FontWeight.w800 : FontWeight.w600,
+              color: total
+                  ? colors.primary
+                  : (isDark ? colors.onSurface : colors.onSurface),
+              fontSize: total ? 16 : 13,
+            ),
           ),
         ),
       ],

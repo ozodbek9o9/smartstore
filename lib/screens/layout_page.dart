@@ -10,7 +10,6 @@ import 'package:smart_store/screens/stock_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:smart_store/screens/theme_controller.dart';
 import '../main.dart' show SmartStoreColors;
-import '../utils/activity_logger.dart';
 import '../utils/notification_controller.dart';
 import '../utils/tenant_firestore.dart';
 import 'home_page.dart';
@@ -47,7 +46,11 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   bool _isSidebarOpen = true;
   bool _isOnline = true;
   bool _offlineDialogShowing = false;
+  bool _isUserBlocked = false;
+  bool _isRedirectingToLogin = false;
   Timer? _connectivityTimer;
+  StreamSubscription<dynamic>? _accountStatusSubscription;
+  StreamSubscription<User?>? _authStateSubscription;
 
   late AnimationController _sidebarController;
   late Animation<double> _sidebarAnimation;
@@ -67,6 +70,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _startConnectivityCheck();
+    _watchAccountStatus();
+    _watchAuthenticationState();
     _sidebarController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 280),
@@ -83,13 +88,57 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     if (mounted) setState(() {});
   }
 
-  // ── Connectivity ──
+  void _watchAccountStatus() {
+    _accountStatusSubscription = TenantFirestore.userDocument
+        .snapshots()
+        .listen((snapshot) {
+          if (!snapshot.exists) {
+            _handleDeletedAccount();
+            return;
+          }
+
+          final data = snapshot.data();
+          final isBlocked =
+              data?['isBlocked'] == true ||
+              data?['blocked'] == true ||
+              data?['is_blocked'] == true;
+
+          if (mounted && isBlocked != _isUserBlocked) {
+            setState(() => _isUserBlocked = isBlocked);
+          }
+        });
+  }
+
+  Future<void> _handleDeletedAccount() async {
+    if (_isRedirectingToLogin || !mounted) return;
+    _isRedirectingToLogin = true;
+    _accountStatusSubscription?.cancel();
+
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {
+      // Navigation must still continue if the local sign-out request fails.
+    }
+
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
   void _startConnectivityCheck() {
     _checkConnectivity();
     _connectivityTimer = Timer.periodic(
       const Duration(seconds: 5),
       (_) => _checkConnectivity(),
     );
+  }
+
+  void _watchAuthenticationState() {
+    _authStateSubscription = FirebaseAuth.instance.userChanges().listen((user) {
+      if (user == null) _handleDeletedAccount();
+    });
   }
 
   Future<void> _checkConnectivity() async {
@@ -131,7 +180,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     ).then((_) => _offlineDialogShowing = false);
   }
 
-  // ── Sidebar ──
   void _toggleSidebar() {
     if (_isSidebarOpen) {
       _sidebarController.reverse();
@@ -145,7 +193,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     setState(() => _selectedSection = section);
   }
 
-  // ── Logout ──
   Future<void> _logout() async {
     final isDark = ThemeController.instance.isDarkMode;
     bool isLoggingOut = false;
@@ -180,16 +227,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           return;
                         }
 
-                        final profile = await TenantFirestore.userDocument
-                            .get();
-                        final username =
-                            (profile.data()?['username'] ?? 'Unknown')
-                                .toString();
-                        await ActivityLogger.log(
-                          username: username,
-                          type: 'logout',
-                          result: 'success',
-                        );
                         await FirebaseAuth.instance.signOut();
                         if (navigator.mounted) {
                           navigator.pushNamedAndRemoveUntil(
@@ -947,6 +984,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   @override
   void dispose() {
     _connectivityTimer?.cancel();
+    _accountStatusSubscription?.cancel();
+    _authStateSubscription?.cancel();
     _sidebarController.dispose();
     ThemeController.instance.removeListener(_onThemeChanged);
     super.dispose();
@@ -963,432 +1002,454 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
     return Scaffold(
       backgroundColor: pageBg,
-      body: Row(
+      body: Stack(
         children: [
-          // ── Sidebar ──
-          AnimatedBuilder(
-            animation: _sidebarAnimation,
-            builder: (context, child) {
-              // Calculate current width based on animation value
-              final double currentWidth =
-                  _sidebarExpandedWidth * _sidebarAnimation.value +
-                  _sidebarCollapsedWidth * (1 - _sidebarAnimation.value);
+          Row(
+            children: [
+              // ── Sidebar ──
+              AnimatedBuilder(
+                animation: _sidebarAnimation,
+                builder: (context, child) {
+                  // Calculate current width based on animation value
+                  final double currentWidth =
+                      _sidebarExpandedWidth * _sidebarAnimation.value +
+                      _sidebarCollapsedWidth * (1 - _sidebarAnimation.value);
+                  // Whether tiles should render in "expanded" (row w/ label) mode.
+                  // Switch as soon as we're past the halfway point of the animation
+                  // instead of only at fully-expanded, so text doesn't get squeezed
+                  // into a too-narrow Row and overflow mid-animation.
 
-              // Whether tiles should render in "expanded" (row w/ label) mode.
-              // Switch as soon as we're past the halfway point of the animation
-              // instead of only at fully-expanded, so text doesn't get squeezed
-              // into a too-narrow Row and overflow mid-animation.
-              final bool renderExpanded = _sidebarAnimation.value > 0.5;
+                  final bool renderExpanded = _sidebarAnimation.value > 0.5;
 
-              return ClipRect(
-                child: Container(
-                  width: currentWidth,
-                  decoration: BoxDecoration(
-                    color: sidebarBg,
-                    border: Border(
-                      right: BorderSide(color: dividerColor, width: 1),
-                    ),
-                    boxShadow: isDark
-                        ? []
-                        : [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.06),
-                              blurRadius: 20,
-                              offset: const Offset(4, 0),
-                            ),
-                          ],
-                  ),
-                  child: Column(
-                    children: [
-                      // ── Sidebar Header ──
-                      _SidebarHeader(
-                        isDark: isDark,
-                        dividerColor: dividerColor,
-                        isExpanded: renderExpanded,
-                      ),
-
-                      // ── Navigation Items ──
-                      Expanded(
-                        child: ListView(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 8,
-                          ),
-                          children: [
-                            if (renderExpanded)
-                              _SidebarGroup(
-                                label: 'nav.group_main'.tr(),
-                                isDark: isDark,
-                                dividerColor: dividerColor,
-                              ),
-                            _SidebarTile(
-                              icon: Icons.dashboard_rounded,
-                              label: 'nav.home'.tr(context: context),
-                              active: _selectedSection == _Section.home,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () => _navigateToSection(_Section.home),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.sell_rounded,
-                              label: 'nav.selling'.tr(context: context),
-                              active: _selectedSection == _Section.selling,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () => _navigateToSection(_Section.selling),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.add_box_rounded,
-                              label: 'nav.adding'.tr(context: context),
-                              active: _selectedSection == _Section.adding,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () => _navigateToSection(_Section.adding),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.inventory_2_rounded,
-                              label: 'nav.stock'.tr(context: context),
-                              active: _selectedSection == _Section.stock,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () => _navigateToSection(_Section.stock),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.people_rounded,
-                              label: 'nav.customers'.tr(context: context),
-                              active: _selectedSection == _Section.customers,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () =>
-                                  _navigateToSection(_Section.customers),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.attach_money_rounded,
-                              label: 'nav.finance'.tr(),
-                              active: _selectedSection == _Section.finance,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () => _navigateToSection(_Section.finance),
-                            ),
-                            _SidebarTile(
-                              icon: Icons.analytics_rounded,
-                              label: 'nav.analytics'.tr(),
-                              active: _selectedSection == _Section.analytics,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () =>
-                                  _navigateToSection(_Section.analytics),
-                            ),
-                            const SizedBox(height: 8),
-                            // ── Divider between Main and System groups ──
-                            _SidebarDivider(
-                              isDark: isDark,
-                              dividerColor: dividerColor,
-                            ),
-                            const SizedBox(height: 8),
-                            if (renderExpanded)
-                              _SidebarGroup(
-                                label: 'nav.group_system'.tr(),
-                                isDark: isDark,
-                                dividerColor: dividerColor,
-                              ),
-                            _SidebarTile(
-                              icon: Icons.settings_rounded,
-                              label: 'nav.settings'.tr(),
-                              active: _selectedSection == _Section.settings,
-                              isDark: isDark,
-                              isExpanded: renderExpanded,
-                              onTap: () =>
-                                  _navigateToSection(_Section.settings),
-                            ),
-                          ],
+                  return ClipRect(
+                    child: Container(
+                      width: currentWidth,
+                      decoration: BoxDecoration(
+                        color: sidebarBg,
+                        border: Border(
+                          right: BorderSide(color: dividerColor, width: 1),
                         ),
-                      ),
-
-                      // ── Sidebar Footer: Logout Button ──
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          border: Border(
-                            top: BorderSide(color: dividerColor, width: 1),
-                          ),
-                        ),
-                        child: _SidebarLogoutButton(
-                          isDark: isDark,
-                          isExpanded: renderExpanded,
-                          onTap: _logout,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-
-          // ── Main Content ──
-          Expanded(
-            child: Column(
-              children: [
-                // ── Top Bar ──
-                Container(
-                  height: 80,
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  decoration: BoxDecoration(
-                    color: topBarBg,
-                    border: Border(
-                      bottom: BorderSide(color: dividerColor, width: 1),
-                    ),
-                    boxShadow: isDark
-                        ? []
-                        : [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.04),
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                  ),
-                  child: Row(
-                    children: [
-                      // Sidebar Toggle
-                      _TopBarIconButton(
-                        icon: _isSidebarOpen
-                            ? Icons.menu_open_rounded
-                            : Icons.menu_rounded,
-                        isDark: isDark,
-                        onTap: _toggleSidebar,
-                        tooltip: _isSidebarOpen
-                            ? 'topbar.close_sidebar'.tr(context: context)
-                            : 'topbar.open_sidebar'.tr(context: context),
-                      ),
-                      const SizedBox(width: 14),
-
-                      // Page Title
-                      Text(
-                        _getSectionTitle(context),
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: isDark
-                              ? SmartStoreColors.darkTextPrimary
-                              : SmartStoreColors.lightTextPrimary,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-
-                      const Spacer(),
-
-                      // Support Center
-                      _TopBarIconButton(
-                        icon: Icons.help_outline_rounded,
-                        isDark: isDark,
-                        onTap: _showSupportCenterDialog,
-                        tooltip: 'topbar.support'.tr(context: context),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // Notifications Button with Red Counter Badge
-                      ListenableBuilder(
-                        listenable: NotificationController.instance,
-                        builder: (context, _) {
-                          final count =
-                              NotificationController.instance.unreadCount;
-                          return Stack(
-                            clipBehavior: Clip.none,
-                            children: [
-                              _TopBarIconButton(
-                                icon: Icons.notifications_none_rounded,
-                                isDark: isDark,
-                                onTap: _showNotificationsDialog,
-                                tooltip: 'topbar.notifications'.tr(
-                                  context: context,
+                        boxShadow: isDark
+                            ? []
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.06),
+                                  blurRadius: 20,
+                                  offset: const Offset(4, 0),
                                 ),
+                              ],
+                      ),
+                      child: Column(
+                        children: [
+                          // ── Sidebar Header ──
+                          _SidebarHeader(
+                            isDark: isDark,
+                            dividerColor: dividerColor,
+                            isExpanded: renderExpanded,
+                          ),
+
+                          // ── Navigation Items ──
+                          Expanded(
+                            child: ListView(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 8,
                               ),
-                              if (count > 0)
-                                Positioned(
-                                  right: -2,
-                                  top: -2,
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 5,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEF4444),
-                                      borderRadius: BorderRadius.circular(10),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: const Color(
-                                            0xFFEF4444,
-                                          ).withOpacity(0.4),
-                                          blurRadius: 4,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    constraints: const BoxConstraints(
-                                      minWidth: 18,
-                                      minHeight: 18,
-                                    ),
-                                    child: Text(
-                                      '+$count',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w800,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
+                              children: [
+                                if (renderExpanded)
+                                  _SidebarGroup(
+                                    label: 'nav.group_main'.tr(),
+                                    isDark: isDark,
+                                    dividerColor: dividerColor,
                                   ),
+                                _SidebarTile(
+                                  icon: Icons.dashboard_rounded,
+                                  label: 'nav.home'.tr(context: context),
+                                  active: _selectedSection == _Section.home,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.home),
                                 ),
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(width: 8),
-
-                      // Language Switcher
-                      PopupMenuButton<String>(
-                        icon: Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? SmartStoreColors.darkSurfaceVariant
-                                      .withOpacity(0.5)
-                                : SmartStoreColors.lightSurfaceVariant,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: isDark
-                                  ? SmartStoreColors.darkDivider
-                                  : SmartStoreColors.lightDivider,
+                                _SidebarTile(
+                                  icon: Icons.sell_rounded,
+                                  label: 'nav.selling'.tr(context: context),
+                                  active: _selectedSection == _Section.selling,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.selling),
+                                ),
+                                _SidebarTile(
+                                  icon: Icons.add_box_rounded,
+                                  label: 'nav.adding'.tr(context: context),
+                                  active: _selectedSection == _Section.adding,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.adding),
+                                ),
+                                _SidebarTile(
+                                  icon: Icons.inventory_2_rounded,
+                                  label: 'nav.stock'.tr(context: context),
+                                  active: _selectedSection == _Section.stock,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.stock),
+                                ),
+                                _SidebarTile(
+                                  icon: Icons.people_rounded,
+                                  label: 'nav.customers'.tr(context: context),
+                                  active:
+                                      _selectedSection == _Section.customers,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.customers),
+                                ),
+                                _SidebarTile(
+                                  icon: Icons.attach_money_rounded,
+                                  label: 'nav.finance'.tr(),
+                                  active: _selectedSection == _Section.finance,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.finance),
+                                ),
+                                _SidebarTile(
+                                  icon: Icons.analytics_rounded,
+                                  label: 'nav.analytics'.tr(),
+                                  active:
+                                      _selectedSection == _Section.analytics,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.analytics),
+                                ),
+                                const SizedBox(height: 8),
+                                // ── Divider between Main and System groups ──
+                                _SidebarDivider(
+                                  isDark: isDark,
+                                  dividerColor: dividerColor,
+                                ),
+                                const SizedBox(height: 8),
+                                if (renderExpanded)
+                                  _SidebarGroup(
+                                    label: 'nav.group_system'.tr(),
+                                    isDark: isDark,
+                                    dividerColor: dividerColor,
+                                  ),
+                                _SidebarTile(
+                                  icon: Icons.settings_rounded,
+                                  label: 'nav.settings'.tr(),
+                                  active: _selectedSection == _Section.settings,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () =>
+                                      _navigateToSection(_Section.settings),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Icon(
-                            Icons.language_rounded,
-                            color: isDark
-                                ? SmartStoreColors.darkTextPrimary
-                                : SmartStoreColors.lightTextPrimary,
-                            size: 19,
-                          ),
-                        ),
-                        onSelected: (val) async {
-                          final prefs = await SharedPreferences.getInstance();
-                          await prefs.setString('language', val);
-                          if (!context.mounted) return;
-                          if (val == 'English') {
-                            await context.setLocale(const Locale('en', 'US'));
-                          } else if (val == 'Russian') {
-                            await context.setLocale(const Locale('ru', 'RU'));
-                          } else if (val == 'Uzbek') {
-                            await context.setLocale(const Locale('uz', 'UZ'));
-                          }
-                          if (mounted) {
-                            setState(() {});
-                          }
-                        },
-                        itemBuilder: (context) => const [
-                          PopupMenuItem(
-                            value: 'English',
-                            child: Text('English'),
-                          ),
-                          PopupMenuItem(
-                            value: 'Russian',
-                            child: Text('Русский'),
-                          ),
-                          PopupMenuItem(
-                            value: 'Uzbek',
-                            child: Text('Oʻzbekcha'),
+
+                          // ── Sidebar Footer: Logout Button ──
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              border: Border(
+                                top: BorderSide(color: dividerColor, width: 1),
+                              ),
+                            ),
+                            child: _SidebarLogoutButton(
+                              isDark: isDark,
+                              isExpanded: renderExpanded,
+                              onTap: _logout,
+                            ),
                           ),
                         ],
-                        tooltip: 'settings.language'.tr(context: context),
-                        offset: const Offset(0, 45),
-                        color: isDark
-                            ? SmartStoreColors.darkSurface
-                            : SmartStoreColors.lightSurface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
                       ),
-                      const SizedBox(width: 8),
+                    ),
+                  );
+                },
+              ),
 
-                      // Dark Mode Toggle
-                      _TopBarIconButton(
-                        icon: isDark
-                            ? Icons.light_mode_rounded
-                            : Icons.dark_mode_rounded,
-                        isDark: isDark,
-                        onTap: () => ThemeController.instance.toggle(),
-                        tooltip: isDark
-                            ? 'topbar.light_mode'.tr(context: context)
-                            : 'topbar.dark_mode'.tr(context: context),
-                      ),
-                      const SizedBox(width: 8),
-
-                      // ── Online Status Badge ──
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 300),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 7,
+              // ── Main Content ──
+              Expanded(
+                child: Column(
+                  children: [
+                    // ── Top Bar ──
+                    Container(
+                      height: 80,
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      decoration: BoxDecoration(
+                        color: topBarBg,
+                        border: Border(
+                          bottom: BorderSide(color: dividerColor, width: 1),
                         ),
-                        decoration: BoxDecoration(
-                          color:
-                              (_isOnline
-                                      ? SmartStoreColors.success
-                                      : SmartStoreColors.danger)
-                                  .withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color:
-                                (_isOnline
-                                        ? SmartStoreColors.success
-                                        : SmartStoreColors.danger)
-                                    .withOpacity(0.3),
+                        boxShadow: isDark
+                            ? []
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                      ),
+                      child: Row(
+                        children: [
+                          // Sidebar Toggle
+                          _TopBarIconButton(
+                            icon: _isSidebarOpen
+                                ? Icons.menu_open_rounded
+                                : Icons.menu_rounded,
+                            isDark: isDark,
+                            onTap: _toggleSidebar,
+                            tooltip: _isSidebarOpen
+                                ? 'topbar.close_sidebar'.tr(context: context)
+                                : 'topbar.open_sidebar'.tr(context: context),
                           ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 7,
-                              height: 7,
-                              decoration: BoxDecoration(
-                                color: _isOnline
-                                    ? SmartStoreColors.success
-                                    : SmartStoreColors.danger,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 7),
-                            Text(
-                              _isOnline
-                                  ? 'topbar.online'.tr(context: context)
-                                  : 'topbar.offline'.tr(context: context),
-                              style: TextStyle(
-                                color: _isOnline
-                                    ? SmartStoreColors.success
-                                    : SmartStoreColors.danger,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                          const SizedBox(width: 14),
 
-                // ── Page Content ──
-                Expanded(child: _buildPageContent()),
-              ],
-            ),
+                          // Page Title
+                          Text(
+                            _getSectionTitle(context),
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: isDark
+                                  ? SmartStoreColors.darkTextPrimary
+                                  : SmartStoreColors.lightTextPrimary,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+
+                          const Spacer(),
+
+                          // Support Center
+                          _TopBarIconButton(
+                            icon: Icons.help_outline_rounded,
+                            isDark: isDark,
+                            onTap: _showSupportCenterDialog,
+                            tooltip: 'topbar.support'.tr(context: context),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Notifications Button with Red Counter Badge
+                          ListenableBuilder(
+                            listenable: NotificationController.instance,
+                            builder: (context, _) {
+                              final count =
+                                  NotificationController.instance.unreadCount;
+                              return Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  _TopBarIconButton(
+                                    icon: Icons.notifications_none_rounded,
+                                    isDark: isDark,
+                                    onTap: _showNotificationsDialog,
+                                    tooltip: 'topbar.notifications'.tr(
+                                      context: context,
+                                    ),
+                                  ),
+                                  if (count > 0)
+                                    Positioned(
+                                      right: -2,
+                                      top: -2,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 5,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEF4444),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(
+                                                0xFFEF4444,
+                                              ).withOpacity(0.4),
+                                              blurRadius: 4,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        constraints: const BoxConstraints(
+                                          minWidth: 18,
+                                          minHeight: 18,
+                                        ),
+                                        child: Text(
+                                          '+$count',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                          ),
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Language Switcher
+                          PopupMenuButton<String>(
+                            icon: Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: isDark
+                                    ? SmartStoreColors.darkSurfaceVariant
+                                          .withOpacity(0.5)
+                                    : SmartStoreColors.lightSurfaceVariant,
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isDark
+                                      ? SmartStoreColors.darkDivider
+                                      : SmartStoreColors.lightDivider,
+                                ),
+                              ),
+                              child: Icon(
+                                Icons.language_rounded,
+                                color: isDark
+                                    ? SmartStoreColors.darkTextPrimary
+                                    : SmartStoreColors.lightTextPrimary,
+                                size: 19,
+                              ),
+                            ),
+                            onSelected: (val) async {
+                              final prefs =
+                                  await SharedPreferences.getInstance();
+                              await prefs.setString('language', val);
+                              if (!context.mounted) return;
+                              if (val == 'English') {
+                                await context.setLocale(
+                                  const Locale('en', 'US'),
+                                );
+                              } else if (val == 'Russian') {
+                                await context.setLocale(
+                                  const Locale('ru', 'RU'),
+                                );
+                              } else if (val == 'Uzbek') {
+                                await context.setLocale(
+                                  const Locale('uz', 'UZ'),
+                                );
+                              }
+                              if (mounted) {
+                                setState(() {});
+                              }
+                            },
+                            itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: 'English',
+                                child: Text('English'),
+                              ),
+                              PopupMenuItem(
+                                value: 'Russian',
+                                child: Text('Русский'),
+                              ),
+                              PopupMenuItem(
+                                value: 'Uzbek',
+                                child: Text('Oʻzbekcha'),
+                              ),
+                            ],
+                            tooltip: 'settings.language'.tr(context: context),
+                            offset: const Offset(0, 45),
+                            color: isDark
+                                ? SmartStoreColors.darkSurface
+                                : SmartStoreColors.lightSurface,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // Dark Mode Toggle
+                          _TopBarIconButton(
+                            icon: isDark
+                                ? Icons.light_mode_rounded
+                                : Icons.dark_mode_rounded,
+                            isDark: isDark,
+                            onTap: () => ThemeController.instance.toggle(),
+                            tooltip: isDark
+                                ? 'topbar.light_mode'.tr(context: context)
+                                : 'topbar.dark_mode'.tr(context: context),
+                          ),
+                          const SizedBox(width: 8),
+
+                          // ── Online Status Badge ──
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 7,
+                            ),
+                            decoration: BoxDecoration(
+                              color:
+                                  (_isOnline
+                                          ? SmartStoreColors.success
+                                          : SmartStoreColors.danger)
+                                      .withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color:
+                                    (_isOnline
+                                            ? SmartStoreColors.success
+                                            : SmartStoreColors.danger)
+                                        .withOpacity(0.3),
+                              ),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 7,
+                                  height: 7,
+                                  decoration: BoxDecoration(
+                                    color: _isOnline
+                                        ? SmartStoreColors.success
+                                        : SmartStoreColors.danger,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                                const SizedBox(width: 7),
+                                Text(
+                                  _isOnline
+                                      ? 'topbar.online'.tr(context: context)
+                                      : 'topbar.offline'.tr(context: context),
+                                  style: TextStyle(
+                                    color: _isOnline
+                                        ? SmartStoreColors.success
+                                        : SmartStoreColors.danger,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    // ── Page Content ──
+                    Expanded(child: _buildPageContent()),
+                  ],
+                ),
+              ),
+            ],
           ),
+          if (_isUserBlocked)
+            const Positioned.fill(child: _AccountBlockedOverlay()),
         ],
       ),
     );
@@ -1437,6 +1498,110 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   }
 }
 
+class _AccountBlockedOverlay extends StatelessWidget {
+  const _AccountBlockedOverlay();
+
+  Future<void> _openTelegram(BuildContext context) async {
+    final uri = Uri.parse('https://t.me/+998501551809');
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+
+    if (!opened && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Telegram ochilmadi.')));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.black.withOpacity(0.94),
+      child: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(28),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 620),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 112,
+                    height: 112,
+                    decoration: BoxDecoration(
+                      color: SmartStoreColors.danger.withOpacity(0.14),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: SmartStoreColors.danger.withOpacity(0.45),
+                        width: 2,
+                      ),
+                    ),
+                    child: const Icon(
+                      Icons.lock_rounded,
+                      size: 62,
+                      color: SmartStoreColors.danger,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  const Text(
+                    'Siz to\'lovni vaqtida to\'lamaganligiz sababli, admin tomonidan bloklangansiz.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  const Text(
+                    'Blokdan ochilish uchun, admin bilan bog\'laning...',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 17,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  InkWell(
+                    onTap: () => _openTelegram(context),
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF229ED9),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.send_rounded, color: Colors.white),
+                          SizedBox(width: 10),
+                          Text(
+                            'Telegram | +998501551809',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ── Sidebar Header Widget ──
 class _SidebarHeader extends StatelessWidget {
   final bool isDark;
@@ -1470,37 +1635,7 @@ class _SidebarHeader extends StatelessWidget {
             ? MainAxisAlignment.start
             : MainAxisAlignment.center,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              gradient: const LinearGradient(
-                colors: [
-                  SmartStoreColors.primary,
-                  SmartStoreColors.primaryLight,
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: SmartStoreColors.primary.withOpacity(0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Image.asset(
-                'assets/logo.png',
-                width: 44,
-                height: 44,
-                fit: BoxFit.cover,
-              ),
-            ),
-          ),
+          const _SidebarLogoButton(),
           if (isExpanded) ...[
             const SizedBox(width: 10),
             Expanded(
@@ -1546,6 +1681,92 @@ class _SidebarHeader extends StatelessWidget {
             ),
           ],
         ],
+      ),
+    );
+  }
+}
+
+class _SidebarLogoButton extends StatelessWidget {
+  const _SidebarLogoButton();
+
+  void _showLogoPreview(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 520, maxHeight: 520),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: const [
+              BoxShadow(
+                color: Colors.black26,
+                blurRadius: 30,
+                offset: Offset(0, 10),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: Stack(
+              children: [
+                Image.asset('assets/logo.png', fit: BoxFit.contain),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    icon: const Icon(Icons.close_rounded),
+                    color: Colors.white,
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.black45,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: GestureDetector(
+        onTap: () => _showLogoPreview(context),
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: const LinearGradient(
+              colors: [SmartStoreColors.primary, SmartStoreColors.primaryLight],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: SmartStoreColors.primary.withOpacity(0.35),
+                blurRadius: 14,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: Image.asset(
+              'assets/logo.png',
+              width: 44,
+              height: 44,
+              fit: BoxFit.cover,
+            ),
+          ),
+        ),
       ),
     );
   }

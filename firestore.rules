@@ -25,6 +25,14 @@ service cloud.firestore {
       }
     }
 
+    // Public username availability registry. It contains only the owning UID,
+    // never profile or authentication data.
+    match /usernames/{username} {
+      allow read: if true;
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
     // Legacy top-level collections and every other unrecognised path are
     // deliberately inaccessible from clients.
     match /{document=**} {
