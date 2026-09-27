@@ -46,5 +46,3 @@ target_link_libraries(smartstore_updater PRIVATE "shell32.lib")
 set_target_properties(smartstore_updater PROPERTIES OUTPUT_NAME "updater")
 set_target_properties(smartstore_updater PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/runner/$<CONFIG>")
-install(TARGETS smartstore_updater RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
-  COMPONENT Runtime)
