@@ -608,10 +608,11 @@ class _AddDebtModalState extends State<_AddDebtModal> {
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty)
+                  if (v == null || v.trim().isEmpty) {
                     return 'customers.err_required'.tr().isEmpty
                         ? 'Required'
                         : 'customers.err_required'.tr();
+                  }
                   return null;
                 },
               ),
@@ -663,17 +664,19 @@ class _AddDebtModalState extends State<_AddDebtModal> {
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.trim().isEmpty)
+                  if (v == null || v.trim().isEmpty) {
                     return 'customers.err_required'.tr().isEmpty
                         ? 'Required'
                         : 'customers.err_required'.tr();
+                  }
                   final price = num.tryParse(
                     v.replaceAll(RegExp(r'[^0-9.]'), ''),
                   );
-                  if (price == null || price <= 0)
+                  if (price == null || price <= 0) {
                     return 'customers.err_invalid_price'.tr().isEmpty
                         ? 'Enter valid price'
                         : 'customers.err_invalid_price'.tr();
+                  }
                   return null;
                 },
               ),

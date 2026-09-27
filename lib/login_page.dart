@@ -383,7 +383,7 @@ class _LoginPageState extends State<LoginPage>
               padding: const EdgeInsets.all(24),
               child: Card(
                 elevation: 8,
-                shadowColor: Colors.black.withOpacity(0.2),
+                shadowColor: Colors.black.withValues(alpha: 0.2),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(24),
                 ),
@@ -404,7 +404,7 @@ class _LoginPageState extends State<LoginPage>
                             color: const Color(0xFF2563EB),
                             boxShadow: [
                               BoxShadow(
-                                color: const Color(0xFF2563EB).withOpacity(0.3),
+                                color: const Color(0xFF2563EB).withValues(alpha: 0.3),
                                 blurRadius: 20,
                                 spreadRadius: 5,
                               ),
@@ -861,7 +861,7 @@ class _LoginPageState extends State<LoginPage>
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2563EB).withOpacity(0.12),
+                  color: const Color(0xFF2563EB).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -1026,7 +1026,7 @@ class _LoginPageState extends State<LoginPage>
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: const Color(0xFF22C55E).withOpacity(0.12),
+                  color: const Color(0xFF22C55E).withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: const Icon(
@@ -1234,12 +1234,12 @@ class _AuthModeBadge extends StatelessWidget {
     final bool isSignIn = mode == _AuthMode.signIn;
 
     final Color bgColor = isSignIn
-        ? const Color(0xFF2563EB).withOpacity(isDark ? 0.18 : 0.08)
-        : const Color(0xFF22C55E).withOpacity(isDark ? 0.18 : 0.08);
+        ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.18 : 0.08)
+        : const Color(0xFF22C55E).withValues(alpha: isDark ? 0.18 : 0.08);
 
     final Color borderColor = isSignIn
-        ? const Color(0xFF2563EB).withOpacity(0.25)
-        : const Color(0xFF22C55E).withOpacity(0.25);
+        ? const Color(0xFF2563EB).withValues(alpha: 0.25)
+        : const Color(0xFF22C55E).withValues(alpha: 0.25);
 
     final Color iconColor = isSignIn
         ? const Color(0xFF2563EB)
@@ -1277,7 +1277,7 @@ class _AuthModeBadge extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(
-              color: iconColor.withOpacity(0.15),
+              color: iconColor.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(

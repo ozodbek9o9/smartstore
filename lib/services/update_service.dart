@@ -66,11 +66,13 @@ class UpdateService extends ChangeNotifier {
       final response = await _client
           .get(uri, headers: _appwriteHeaders)
           .timeout(const Duration(seconds: 12));
-      if (response.statusCode != 200)
+      if (response.statusCode != 200) {
         throw HttpException('Update server unavailable');
+      }
       final decoded = jsonDecode(response.body);
-      if (decoded is! Map)
+      if (decoded is! Map) {
         throw const FormatException('Invalid update manifest');
+      }
       final candidate = UpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
       if (compareVersions(candidate.version, currentVersion) > 0) {
         update = candidate;
@@ -88,8 +90,9 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> install() async {
     final candidate = update;
-    if (candidate == null || _operationInProgress || !Platform.isWindows)
+    if (candidate == null || _operationInProgress || !Platform.isWindows) {
       return;
+    }
     _operationInProgress = true;
     errorMessage = null;
     progress = 0;
@@ -107,8 +110,9 @@ class UpdateService extends ChangeNotifier {
       final response = await _client
           .send(request)
           .timeout(const Duration(minutes: 10));
-      if (response.statusCode != 200)
+      if (response.statusCode != 200) {
         throw HttpException('Update download failed');
+      }
       final total = response.contentLength ?? candidate.sizeBytes;
       var received = 0;
       final sink = packageFile.openWrite();
@@ -136,8 +140,9 @@ class UpdateService extends ChangeNotifier {
       notifyListeners();
       final executable = File(Platform.resolvedExecutable);
       final updater = File('${executable.parent.path}\\updater.exe');
-      if (!await updater.exists())
+      if (!await updater.exists()) {
         throw FileSystemException('updater.exe not found');
+      }
       final result = await Process.start(updater.path, [
         '--parent-pid',
         pid.toString(),
