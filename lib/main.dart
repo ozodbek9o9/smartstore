@@ -101,7 +101,6 @@ class SmartStoreApp extends StatelessWidget {
               : _FirebaseInitErrorScreen(error: _firebaseInitError!),
           routes: {
             '/login': (context) => const LoginPage(),
-            '/login-signup': (context) => const LoginPage(showSignUp: true),
             '/home': (context) => const LayoutPage(),
           },
         );

@@ -33,6 +33,14 @@ service cloud.firestore {
       allow update, delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    // Legacy admin console credentials. The app reads one matching document
+    // during login and never writes this collection.
+    match /customers/{customerId} {
+      allow read: if true;
+      allow create, update: if signedIn();
+      allow delete: if false;
+    }
+
     // Legacy top-level collections and every other unrecognised path are
     // deliberately inaccessible from clients.
     match /{document=**} {

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme_controller.dart';
+import '../services/auth_service.dart';
 import '../utils/tenant_firestore.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -20,13 +21,15 @@ class _SettingsPageState extends State<SettingsPage> {
   final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _authService = AuthService();
 
   bool _isLoading = true;
   bool _isSaving = false;
   bool _obscureCurrentPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
-  String _accountPassword = '';
+  String _loadedUsername = '';
+  String _customerId = '';
 
   @override
   void initState() {
@@ -55,9 +58,9 @@ class _SettingsPageState extends State<SettingsPage> {
       final document = await TenantFirestore.userDocument.get();
       final data = document.data() ?? const <String, dynamic>{};
       _fullNameController.text = data['fullName']?.toString() ?? '';
-      _usernameController.text = data['username']?.toString() ?? '';
-      _accountPassword = data['password']?.toString() ?? '';
-      _currentPasswordController.text = _accountPassword;
+      _loadedUsername = data['username']?.toString() ?? '';
+      _usernameController.text = _loadedUsername;
+      _customerId = data['customerId']?.toString() ?? '';
     } catch (error) {
       debugPrint('Unable to load settings: $error');
     } finally {
@@ -84,37 +87,73 @@ class _SettingsPageState extends State<SettingsPage> {
 
     try {
       final passwordWasChanged = _newPasswordController.text.isNotEmpty;
-      if (passwordWasChanged) {
-        if (_currentPasswordController.text != _accountPassword) {
-          _showMessage('account.err_incorrect_password'.tr(), isError: true);
-          return;
-        }
-        if (_newPasswordController.text != _confirmPasswordController.text) {
-          _showMessage('account.err_passwords_mismatch'.tr(), isError: true);
-          return;
-        }
+      final username = _usernameController.text.trim();
+      final usernameWasChanged =
+          username.toLowerCase() != _loadedUsername.toLowerCase();
+      final credentialsWereChanged = usernameWasChanged || passwordWasChanged;
+
+      if (credentialsWereChanged && _currentPasswordController.text.isEmpty) {
+        _showMessage('Joriy parolni kiriting.', isError: true);
+        return;
+      }
+      if (passwordWasChanged &&
+          _newPasswordController.text != _confirmPasswordController.text) {
+        _showMessage('account.err_passwords_mismatch'.tr(), isError: true);
+        return;
       }
 
-      final updates = <String, dynamic>{
-        'fullName': _fullNameController.text.trim(),
-        'username': _usernameController.text.trim(),
-      };
-      if (passwordWasChanged) updates['password'] = _newPasswordController.text;
-      await TenantFirestore.userDocument.set(updates, SetOptions(merge: true));
+      if (_customerId.isNotEmpty) {
+        final saved = await _saveCustomerAccount(
+          username: username,
+          fullName: _fullNameController.text,
+          currentPassword: credentialsWereChanged
+              ? _currentPasswordController.text
+              : null,
+          newPassword: passwordWasChanged ? _newPasswordController.text : null,
+        );
+        if (!saved) return;
+      } else {
+        await _authService.updateProfile(
+          currentUsername: _loadedUsername,
+          username: username,
+          fullName: _fullNameController.text,
+          currentPassword: credentialsWereChanged
+              ? _currentPasswordController.text
+              : null,
+          newPassword: passwordWasChanged ? _newPasswordController.text : null,
+        );
+      }
 
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('username', _usernameController.text.trim());
+      await prefs.setString('username', username);
+      _loadedUsername = username;
 
       if (passwordWasChanged) {
-        _accountPassword = _newPasswordController.text;
         _currentPasswordController.clear();
         _newPasswordController.clear();
         _confirmPasswordController.clear();
+      } else if (credentialsWereChanged) {
+        _currentPasswordController.clear();
       }
 
       if (mounted) setState(() {});
       _showMessage('account.success_saved'.tr());
     } catch (error) {
+      if (error is InvalidUsernameException) {
+        _showMessage(
+          'Username kamida 3 ta belgi bo\'lsin: harf, raqam yoki _.',
+          isError: true,
+        );
+        return;
+      }
+      if (error is UsernameAlreadyTakenException) {
+        _showMessage('Bu username band. Boshqasini tanlang.', isError: true);
+        return;
+      }
+      if (error is RecentAuthenticationRequiredException) {
+        _showMessage('Joriy parolni kiriting.', isError: true);
+        return;
+      }
       _showMessage(
         'account.err_save'.tr(args: [error.toString()]),
         isError: true,
@@ -124,13 +163,69 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<bool> _saveCustomerAccount({
+    required String username,
+    required String fullName,
+    required String? currentPassword,
+    required String? newPassword,
+  }) async {
+    final customerRef = FirebaseFirestore.instance
+        .collection('customers')
+        .doc(_customerId);
+    final customerSnapshot = await customerRef.get();
+    final customer = customerSnapshot.data();
+    if (customer == null) {
+      _showMessage('Customer ma’lumotlari topilmadi.', isError: true);
+      return false;
+    }
+
+    if (currentPassword != null &&
+        customer['password']?.toString() != currentPassword) {
+      _showMessage('Joriy parol noto‘g‘ri.', isError: true);
+      return false;
+    }
+
+    if (username.toLowerCase() != _loadedUsername.toLowerCase()) {
+      final duplicate = await FirebaseFirestore.instance
+          .collection('customers')
+          .where('username', isEqualTo: username)
+          .limit(1)
+          .get();
+      if (duplicate.docs.any((document) => document.id != _customerId)) {
+        _showMessage('Bu username band. Boshqasini tanlang.', isError: true);
+        return false;
+      }
+    }
+
+    final customerUpdate = <String, dynamic>{
+      'name': fullName.trim(),
+      'username': username,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (newPassword != null && newPassword.isNotEmpty) {
+      customerUpdate['password'] = newPassword;
+      customerUpdate['passwordUpdatedAt'] = null;
+    }
+    await customerRef.update(customerUpdate);
+    await TenantFirestore.userDocument.set({
+      'uid': TenantFirestore.uid,
+      'username': username,
+      'usernameLower': username.toLowerCase(),
+      'fullName': fullName.trim(),
+      'customerId': _customerId,
+      'authProvider': 'anonymous_customer',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+    return true;
+  }
+
   Future<void> _showDeleteAccountDialog() async {
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => _DeleteAccountDialog(
         onDeleted: () {
           if (mounted) {
-            Navigator.of(context).pushReplacementNamed('/login-signup');
+            Navigator.of(context).pushReplacementNamed('/login');
           }
         },
         showMessage: _showMessage,

@@ -1,45 +1,23 @@
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/layout_page.dart';
-import 'services/auth_service.dart';
-import 'utils/tenant_firestore.dart';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// LoginPage – tizim o'zi aniqlaydi: sign-in yoki sign-up kerakligini
-// ─────────────────────────────────────────────────────────────────────────────
 class LoginPage extends StatefulWidget {
-  final bool showSignUp;
-  const LoginPage({super.key, this.showSignUp = false});
+  const LoginPage({super.key});
 
   @override
   State<LoginPage> createState() => _LoginPageState();
 }
 
-enum _AuthMode { unknown, signIn, signUp }
-
 class _LoginPageState extends State<LoginPage>
     with SingleTickerProviderStateMixin {
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final TextEditingController _usernameController = TextEditingController();
-  final TextEditingController _fullNameController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController =
-      TextEditingController();
 
   bool _isLoading = false;
   bool _obscurePassword = true;
-  bool _obscureConfirmPassword = true;
-  bool? _usernameAvailable;
-  bool _isCheckingUsername = false;
-  Timer? _usernameAvailabilityTimer;
-  int _usernameAvailabilityRequest = 0;
-
-  // Detected mode after username check
-  _AuthMode _authMode = _AuthMode.signIn;
-
-  final AuthService _authService = AuthService();
 
   late final AnimationController _slideController;
   late final Animation<Offset> _slideAnimation;
@@ -61,132 +39,57 @@ class _LoginPageState extends State<LoginPage>
       curve: Curves.easeOut,
     );
     _slideController.forward();
-
-    // If opened after account deletion, open the sign-up form directly.
-    if (widget.showSignUp) {
-      _authMode = _AuthMode.signUp;
-    }
   }
 
   @override
   void dispose() {
     _usernameController.dispose();
-    _fullNameController.dispose();
     _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    _usernameAvailabilityTimer?.cancel();
     _slideController.dispose();
     super.dispose();
   }
 
-  // ── Kirish yoki ro'yxatdan o'tish ─────────────────────────────────────────
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
     final username = _usernameController.text.trim();
     final password = _passwordController.text;
-    final fullName = _fullNameController.text.trim();
-
-    if (_authMode == _AuthMode.signUp &&
-        (_isCheckingUsername || _usernameAvailable != true)) {
-      _showError(
-        _isCheckingUsername
-            ? 'Username tekshirilmoqda. Biroz kuting.'
-            : 'Avval bo\'sh username tanlang.',
-      );
-      return;
-    }
-
-    debugPrint(
-      'AUTH_SUBMIT: mode=${_authMode.name} username=$username fullName=$fullName passwordLength=${password.length}',
-    );
+    debugPrint('AUTH_SUBMIT: username=$username');
 
     try {
-      AuthResult result;
-
-      if (_authMode == _AuthMode.signIn) {
-        final email = AuthService.emailForUsername(username);
-        debugPrint('AUTH_SUBMIT_SIGNIN: email=$email');
-        final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: email,
-          password: password,
-        );
-        await TenantFirestore.usernameDocument(
-          username,
-        ).set({'uid': cred.user!.uid}, SetOptions(merge: true));
-        result = AuthResult(user: cred.user!, created: false);
-      } else {
-        debugPrint(
-          'AUTH_SUBMIT_SIGNUP: email=${AuthService.emailForUsername(username)}',
-        );
-        result = await _authService.registerOrSignIn(
-          username: username,
-          fullName: fullName,
-          password: password,
-        );
+      await FirebaseAuth.instance.signOut();
+      final customerLoginResult = await _tryCustomerLogin(username, password);
+      if (customerLoginResult == true) {
+        _openHome();
+        return;
       }
+      if (customerLoginResult == false) return;
 
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.created
-                ? 'Xush kelibsiz, $fullName! 🎉'
-                : 'Qaytib keldingiz! 👋',
-          ),
-          backgroundColor: const Color(0xFF22C55E),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-        ),
-      );
-
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          PageRouteBuilder(
-            pageBuilder: (_, _, _) => const LayoutPage(),
-            transitionsBuilder: (_, anim, _, child) =>
-                FadeTransition(opacity: anim, child: child),
-            transitionDuration: const Duration(milliseconds: 400),
-          ),
-        );
-      }
+      _showError('Username yoki parol noto\'g\'ri.');
     } on FirebaseAuthException catch (e, stack) {
       debugPrint('AUTH_FIREBASE_ERROR: code=${e.code} msg=${e.message}');
       debugPrintStack(stackTrace: stack);
 
-      if (_authMode == _AuthMode.signIn &&
-          (e.code == 'wrong-password' ||
-              e.code == 'invalid-credential' ||
-              e.code == 'user-not-found' ||
-              e.code == 'invalid-login-credentials')) {
+      if (e.code == 'wrong-password' ||
+          e.code == 'invalid-credential' ||
+          e.code == 'user-not-found' ||
+          e.code == 'invalid-login-credentials') {
         _showError('Username yoki parol noto\'g\'ri.');
         return;
       }
 
-      if (_authMode == _AuthMode.signUp &&
-          (e.code == 'email-already-in-use' || e.code == 'account-exists')) {
-        setState(() {
-          _usernameAvailable = false;
-          _isCheckingUsername = false;
-        });
-        _showError('Bu username band. Boshqa username tanlang.');
-        return;
-      }
-
-      if (e.code == 'weak-password') {
-        _showError(
-          'Parol juda zaif. Kamida 6 ta belgidan iborat, harf va raqam bo\'lishi kerak.',
-        );
-        return;
-      }
-
       if (e.code == 'invalid-email') {
+        _showError('Username formatini tekshiring.');
+        return;
+      }
+
+      final firebaseMessage = e.message?.toLowerCase() ?? '';
+      if (e.code == 'operation-not-allowed' ||
+          firebaseMessage.contains('restricted to administrators') ||
+          firebaseMessage.contains('anonymous')) {
         _showError(
-          'Email formati noto\'g\'ri. Foydalanuvchi nomini tekshiring.',
+          'Firebase Console’da Anonymous sign-in yoqilmagan. Admin uni yoqishi kerak.',
         );
         return;
       }
@@ -201,36 +104,93 @@ class _LoginPageState extends State<LoginPage>
     }
   }
 
-  void _switchToSignUp() {
-    _slideController.reset();
-    _slideController.forward();
-    setState(() {
-      _authMode = _AuthMode.signUp;
-      _passwordController.clear();
-      _fullNameController.clear();
-      _confirmPasswordController.clear();
-      _usernameAvailable = null;
-      _isCheckingUsername = false;
-      _obscurePassword = true;
-      _obscureConfirmPassword = true;
-      _isLoading = false;
-    });
+  /// Supports accounts created by the separate admin console. Those accounts
+  /// are stored in the top-level `customers` collection, not Firebase Auth.
+  Future<bool?> _tryCustomerLogin(String username, String password) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('customers')
+        .where('username', isEqualTo: username)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) return null;
+
+    final customer = snapshot.docs.first.data();
+    if (customer['password']?.toString() != password) {
+      _showError('Username yoki parol noto\'g\'ri.');
+      return false;
+    }
+    if (_isBlocked(customer)) {
+      await _showBlockedDialog();
+      return false;
+    }
+
+    final credential = await FirebaseAuth.instance.signInAnonymously();
+    final user = credential.user;
+    if (user == null) {
+      throw StateError('Firebase anonymous sessiyasi ochilmadi.');
+    }
+
+    await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+      'uid': user.uid,
+      'username': username,
+      'usernameLower': username.toLowerCase(),
+      'fullName': customer['name']?.toString() ?? 'SmartStore user',
+      'customerId': snapshot.docs.first.id,
+      'isBlocked': false,
+      'authProvider': 'anonymous_customer',
+    }, SetOptions(merge: true));
+    return true;
   }
 
-  void _switchToSignIn() {
-    _slideController.reset();
-    _slideController.forward();
-    setState(() {
-      _authMode = _AuthMode.signIn;
-      _passwordController.clear();
-      _fullNameController.clear();
-      _confirmPasswordController.clear();
-      _usernameAvailable = null;
-      _isCheckingUsername = false;
-      _obscurePassword = true;
-      _obscureConfirmPassword = true;
-      _isLoading = false;
-    });
+  bool _isBlocked(Map<String, dynamic>? data) {
+    final status = data?['status']?.toString().trim().toLowerCase();
+    return data?['isBlocked'] == true ||
+        data?['blocked'] == true ||
+        data?['is_blocked'] == true ||
+        status == 'blocked' ||
+        status == 'block' ||
+        status == 'bloklangan';
+  }
+
+  Future<void> _showBlockedDialog() async {
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Akkaunt bloklangan'),
+        content: const Text(
+          'Admin ushbu akkauntni bloklagan. Blok olib tashlangandan keyin qayta urinib ko‘ring.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Tushunarli'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openHome() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text('Tizimga muvaffaqiyatli kirdingiz.'),
+        backgroundColor: const Color(0xFF22C55E),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ),
+    );
+    Navigator.of(context).pushReplacement(
+      PageRouteBuilder(
+        pageBuilder: (_, _, _) => const LayoutPage(),
+        transitionsBuilder: (_, anim, _, child) =>
+            FadeTransition(opacity: anim, child: child),
+        transitionDuration: const Duration(milliseconds: 400),
+      ),
+    );
   }
 
   void _showError(String message) {
@@ -249,43 +209,6 @@ class _LoginPageState extends State<LoginPage>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         duration: const Duration(seconds: 4),
       ),
-    );
-  }
-
-  void _checkUsernameAvailability(String value) {
-    _usernameAvailabilityTimer?.cancel();
-    final username = value.trim();
-    final requestId = ++_usernameAvailabilityRequest;
-    final isValid = RegExp(r'^[a-zA-Z0-9_]{3,}$').hasMatch(username);
-
-    setState(() {
-      _usernameAvailable = null;
-      _isCheckingUsername = isValid;
-    });
-
-    if (!isValid) return;
-
-    _usernameAvailabilityTimer = Timer(
-      const Duration(milliseconds: 350),
-      () async {
-        try {
-          final snapshot = await FirebaseFirestore.instance
-              .collection('usernames')
-              .doc(username.toLowerCase())
-              .get();
-          if (!mounted || requestId != _usernameAvailabilityRequest) return;
-          setState(() {
-            _usernameAvailable = !snapshot.exists;
-            _isCheckingUsername = false;
-          });
-        } catch (_) {
-          if (!mounted || requestId != _usernameAvailabilityRequest) return;
-          setState(() {
-            _usernameAvailable = null;
-            _isCheckingUsername = false;
-          });
-        }
-      },
     );
   }
 
@@ -371,20 +294,12 @@ class _LoginPageState extends State<LoginPage>
                           ),
                         ),
                         const SizedBox(height: 6),
-                        AnimatedSwitcher(
-                          duration: const Duration(milliseconds: 280),
-                          child: Text(
-                            _authMode == _AuthMode.signIn
-                                ? 'Hisobingizga kiring'
-                                : _authMode == _AuthMode.signUp
-                                ? 'Yangi hisob yarating'
-                                : 'Foydalanuvchi nomingizni kiriting',
-                            key: ValueKey(_authMode),
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: Colors.grey.shade500,
-                              fontWeight: FontWeight.w500,
-                            ),
+                        Text(
+                          'Hisobingizga kiring',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: Colors.grey.shade500,
+                            fontWeight: FontWeight.w500,
                           ),
                         ),
 
@@ -392,20 +307,11 @@ class _LoginPageState extends State<LoginPage>
                         Divider(color: Colors.grey.shade200),
                         const SizedBox(height: 24),
 
-                        // ── Mode badge (sign-in / sign-up indicator) ──
-                        if (_authMode != _AuthMode.unknown) ...[
-                          _AuthModeBadge(mode: _authMode, isDark: isDarkMode),
-                          const SizedBox(height: 20),
-                        ],
-
-                        // ── Step 0: Username ──
                         FadeTransition(
                           opacity: _fadeAnimation,
                           child: SlideTransition(
                             position: _slideAnimation,
-                            child: _authMode == _AuthMode.signIn
-                                ? _buildCredentialsSignInStep(isDarkMode)
-                                : _buildProfessionalSignUpStep(isDarkMode),
+                            child: _buildCredentialsSignInStep(),
                           ),
                         ),
                       ],
@@ -422,7 +328,7 @@ class _LoginPageState extends State<LoginPage>
 
   // ── Step 0: Username input ────────────────────────────────────────────────
 
-  Widget _buildCredentialsSignInStep(bool isDark) {
+  Widget _buildCredentialsSignInStep() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -476,159 +382,6 @@ class _LoginPageState extends State<LoginPage>
           icon: Icons.login_rounded,
           color: const Color(0xFF2563EB),
         ),
-        const SizedBox(height: 18),
-        _modeSwitch(
-          label: 'Hisob yo\'qmi?',
-          action: 'Sign up',
-          color: const Color(0xFF2563EB),
-          onPressed: _switchToSignUp,
-        ),
-      ],
-    );
-  }
-
-  Widget _buildProfessionalSignUpStep(bool isDark) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextFormField(
-          controller: _fullNameController,
-          textInputAction: TextInputAction.next,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Ism va Familya',
-            hintText: 'Ismingiz va familyangiz',
-            prefixIcon: Icon(Icons.badge_outlined),
-          ),
-          validator: (value) {
-            if (value == null || value.trim().length < 2) {
-              return 'Ism va familyangizni kiriting';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _usernameController,
-          textInputAction: TextInputAction.next,
-          onChanged: _checkUsernameAvailability,
-          decoration: const InputDecoration(
-            labelText: 'Username',
-            hintText: 'Benzersiz username tanlang',
-            prefixIcon: Icon(Icons.alternate_email_rounded),
-          ),
-          validator: (value) {
-            final username = value?.trim() ?? '';
-            if (username.isEmpty) return 'Username kiriting';
-            if (!RegExp(r'^[a-zA-Z0-9_]{3,}$').hasMatch(username)) {
-              return 'Kamida 3 ta belgi: harf, raqam yoki _';
-            }
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        if (_isCheckingUsername)
-          const Padding(
-            padding: EdgeInsets.only(top: 6, left: 12),
-            child: Text(
-              'Username tekshirilmoqda...',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
-            ),
-          )
-        else if (_usernameAvailable == true)
-          const Padding(
-            padding: EdgeInsets.only(top: 6, left: 12),
-            child: Text(
-              'Username mavjud, foydalanishingiz mumkin.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF16A34A),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          )
-        else if (_usernameAvailable == false)
-          const Padding(
-            padding: EdgeInsets.only(top: 6, left: 12),
-            child: Text(
-              'Bu username band. Boshqasini tanlang.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFFDC2626),
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-        TextFormField(
-          controller: _passwordController,
-          obscureText: _obscurePassword,
-          textInputAction: TextInputAction.next,
-          decoration: InputDecoration(
-            labelText: 'Password',
-            hintText: 'Kamida 6 ta belgidan iborat',
-            prefixIcon: const Icon(Icons.lock_outline_rounded),
-            suffixIcon: IconButton(
-              tooltip: _obscurePassword
-                  ? 'Parolni ko\'rsatish'
-                  : 'Parolni yashirish',
-              icon: Icon(
-                _obscurePassword
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-              ),
-              onPressed: () =>
-                  setState(() => _obscurePassword = !_obscurePassword),
-            ),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) return 'Password kiriting';
-            if (value.length < 6) return 'Kamida 6 ta belgi';
-            return null;
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
-          controller: _confirmPasswordController,
-          obscureText: _obscureConfirmPassword,
-          textInputAction: TextInputAction.done,
-          onFieldSubmitted: (_) => _submit(),
-          decoration: InputDecoration(
-            labelText: 'Re-password',
-            hintText: 'Parolni qayta kiriting',
-            prefixIcon: const Icon(Icons.lock_reset_rounded),
-            suffixIcon: IconButton(
-              tooltip: _obscureConfirmPassword
-                  ? 'Parolni ko\'rsatish'
-                  : 'Parolni yashirish',
-              icon: Icon(
-                _obscureConfirmPassword
-                    ? Icons.visibility_off_rounded
-                    : Icons.visibility_rounded,
-              ),
-              onPressed: () => setState(
-                () => _obscureConfirmPassword = !_obscureConfirmPassword,
-              ),
-            ),
-          ),
-          validator: (value) {
-            if (value == null || value.isEmpty) return 'Parolni qayta kiriting';
-            if (value != _passwordController.text) return 'Parollar mos emas';
-            return null;
-          },
-        ),
-        const SizedBox(height: 24),
-        _primaryAuthButton(
-          label: 'Yaratish',
-          icon: Icons.person_add_alt_1_rounded,
-          color: const Color(0xFF16A34A),
-        ),
-        const SizedBox(height: 18),
-        _modeSwitch(
-          label: 'Hisobingiz bormi?',
-          action: 'Sign in',
-          color: const Color(0xFF16A34A),
-          onPressed: _switchToSignIn,
-        ),
       ],
     );
   }
@@ -662,116 +415,6 @@ class _LoginPageState extends State<LoginPage>
           ),
           elevation: 0,
         ),
-      ),
-    );
-  }
-
-  Widget _modeSwitch({
-    required String label,
-    required String action,
-    required Color color,
-    required VoidCallback onPressed,
-  }) {
-    return Align(
-      alignment: Alignment.center,
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade600),
-          ),
-          TextButton(
-            onPressed: onPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: color,
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: Text(
-              action,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Auth Mode Badge – sign-in yoki sign-up ekanligini ko'rsatuvchi badge
-// ─────────────────────────────────────────────────────────────────────────────
-class _AuthModeBadge extends StatelessWidget {
-  final _AuthMode mode;
-  final bool isDark;
-
-  const _AuthModeBadge({required this.mode, required this.isDark});
-
-  @override
-  Widget build(BuildContext context) {
-    final bool isSignIn = mode == _AuthMode.signIn;
-
-    final Color bgColor = isSignIn
-        ? const Color(0xFF2563EB).withValues(alpha: isDark ? 0.18 : 0.08)
-        : const Color(0xFF22C55E).withValues(alpha: isDark ? 0.18 : 0.08);
-
-    final Color borderColor = isSignIn
-        ? const Color(0xFF2563EB).withValues(alpha: 0.25)
-        : const Color(0xFF22C55E).withValues(alpha: 0.25);
-
-    final Color iconColor = isSignIn
-        ? const Color(0xFF2563EB)
-        : const Color(0xFF22C55E);
-
-    final IconData icon = isSignIn
-        ? Icons.login_rounded
-        : Icons.person_add_rounded;
-
-    final String text = isSignIn
-        ? 'Mavjud hisob aniqlandi'
-        : 'Yangi hisob yaratiladi';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, color: iconColor, size: 18),
-          const SizedBox(width: 10),
-          Text(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: iconColor,
-            ),
-          ),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-            decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              isSignIn ? 'Sign In' : 'Sign Up',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w800,
-                color: iconColor,
-                letterSpacing: 0.5,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

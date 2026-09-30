@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -48,8 +49,11 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   bool _offlineDialogShowing = false;
   bool _isUserBlocked = false;
   bool _isRedirectingToLogin = false;
+  bool _isHandlingBlockedAccount = false;
   Timer? _connectivityTimer;
   StreamSubscription<dynamic>? _accountStatusSubscription;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
+  _customerStatusSubscription;
   StreamSubscription<User?>? _authStateSubscription;
 
   late AnimationController _sidebarController;
@@ -70,7 +74,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _startConnectivityCheck();
-    _watchAccountStatus();
+    unawaited(_watchAccountStatus());
     _watchAuthenticationState();
     _sidebarController = AnimationController(
       vsync: this,
@@ -88,7 +92,16 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     if (mounted) setState(() {});
   }
 
-  void _watchAccountStatus() {
+  Future<void> _watchAccountStatus() async {
+    if (_accountStatusSubscription != null) return;
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance.authStateChanges().firstWhere(
+        (user) => user != null,
+      );
+      if (!mounted) return;
+    }
+    if (_accountStatusSubscription != null) return;
+
     _accountStatusSubscription = TenantFirestore.userDocument
         .snapshots()
         .listen((snapshot) {
@@ -98,15 +111,63 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
           }
 
           final data = snapshot.data();
-          final isBlocked =
-              data?['isBlocked'] == true ||
-              data?['blocked'] == true ||
-              data?['is_blocked'] == true;
+          final isBlocked = _isBlocked(data);
 
           if (mounted && isBlocked != _isUserBlocked) {
             setState(() => _isUserBlocked = isBlocked);
           }
+
+          final customerId = data?['customerId']?.toString();
+          if (customerId != null && customerId.isNotEmpty) {
+            _watchCustomerStatus(customerId);
+          }
         });
+  }
+
+  bool _isBlocked(Map<String, dynamic>? data) {
+    final status = data?['status']?.toString().trim().toLowerCase();
+    return data?['isBlocked'] == true ||
+        data?['blocked'] == true ||
+        data?['is_blocked'] == true ||
+        status == 'blocked' ||
+        status == 'block' ||
+        status == 'bloklangan';
+  }
+
+  void _watchCustomerStatus(String customerId) {
+    if (_customerStatusSubscription != null) return;
+
+    _customerStatusSubscription = FirebaseFirestore.instance
+        .collection('customers')
+        .doc(customerId)
+        .snapshots()
+        .listen((snapshot) {
+          if (!snapshot.exists) return;
+          final isBlocked = _isBlocked(snapshot.data());
+          if (!isBlocked) {
+            if (mounted && _isUserBlocked) {
+              setState(() => _isUserBlocked = false);
+            }
+            return;
+          }
+          _handleBlockedAccount();
+        });
+  }
+
+  Future<void> _handleBlockedAccount() async {
+    if (_isHandlingBlockedAccount || !mounted) return;
+    _isHandlingBlockedAccount = true;
+    setState(() => _isUserBlocked = true);
+  }
+
+  Future<void> _returnToLoginFromBlockedAccount() async {
+    if (!mounted) return;
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.of(
+      context,
+      rootNavigator: true,
+    ).pushNamedAndRemoveUntil('/login', (route) => false);
   }
 
   Future<void> _handleDeletedAccount() async {
@@ -137,7 +198,9 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
   void _watchAuthenticationState() {
     _authStateSubscription = FirebaseAuth.instance.userChanges().listen((user) {
-      if (user == null) _handleDeletedAccount();
+      if (user == null && _accountStatusSubscription != null) {
+        _handleDeletedAccount();
+      }
     });
   }
 
@@ -180,7 +243,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     ).then((_) => _offlineDialogShowing = false);
   }
 
-  void _toggleSidebar() {
+  void toggleSidebar() {
     if (_isSidebarOpen) {
       _sidebarController.reverse();
     } else {
@@ -189,11 +252,11 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     setState(() => _isSidebarOpen = !_isSidebarOpen);
   }
 
-  void _navigateToSection(_Section section) {
+  void navigateToSection(_Section section) {
     setState(() => _selectedSection = section);
   }
 
-  Future<void> _logout() async {
+  Future<void> logout() async {
     final isDark = ThemeController.instance.isDarkMode;
     bool isLoggingOut = false;
 
@@ -614,7 +677,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                   'support_dialog.email_sub',
                   'Click to write email',
                 ),
-                onTap: () => _launchContactUrl(
+                onTap: () => launchContactUrl(
                   context,
                   url: 'mailto:ozodbekinomjonov9o9@gmail.com',
                   copyFallback: 'ozodbekinomjonov9o9@gmail.com',
@@ -631,7 +694,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                 title: _tr('support_dialog.phone', 'Phone'),
                 value: '+998 50 155 18 09',
                 subtitle: _tr('support_dialog.phone_sub', 'Click to call'),
-                onTap: () => _launchContactUrl(
+                onTap: () => launchContactUrl(
                   context,
                   url: 'tel:+998501551809',
                   copyFallback: '+998501551809',
@@ -651,7 +714,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                   'support_dialog.telegram_sub',
                   'Click to open Telegram profile',
                 ),
-                onTap: () => _launchContactUrl(
+                onTap: () => launchContactUrl(
                   context,
                   url: 'https://t.me/ozodbek_9o9',
                   copyFallback: 'https://t.me/ozodbek_9o9',
@@ -664,7 +727,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     );
   }
 
-  Future<void> _launchContactUrl(
+  Future<void> launchContactUrl(
     BuildContext context, {
     required String url,
     required String copyFallback,
@@ -676,16 +739,16 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
         mode: LaunchMode.externalApplication,
       );
       if (!launched && mounted) {
-        await _copyToClipboard(context, copyFallback);
+        await copyToClipboard(context, copyFallback);
       }
     } catch (_) {
       if (mounted) {
-        await _copyToClipboard(context, copyFallback);
+        await copyToClipboard(context, copyFallback);
       }
     }
   }
 
-  Future<void> _copyToClipboard(BuildContext context, String text) async {
+  Future<void> copyToClipboard(BuildContext context, String text) async {
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;
     final msg = _tr('support_dialog.copied', 'Copied to clipboard!');
@@ -985,6 +1048,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   void dispose() {
     _connectivityTimer?.cancel();
     _accountStatusSubscription?.cancel();
+    _customerStatusSubscription?.cancel();
     _authStateSubscription?.cancel();
     _sidebarController.dispose();
     ThemeController.instance.removeListener(_onThemeChanged);
@@ -1068,8 +1132,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   active: _selectedSection == _Section.home,
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      _navigateToSection(_Section.home),
+                                  onTap: () => navigateToSection(_Section.home),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.sell_rounded,
@@ -1078,7 +1141,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.selling),
+                                      navigateToSection(_Section.selling),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.add_box_rounded,
@@ -1087,7 +1150,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.adding),
+                                      navigateToSection(_Section.adding),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.inventory_2_rounded,
@@ -1096,7 +1159,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.stock),
+                                      navigateToSection(_Section.stock),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.people_rounded,
@@ -1106,7 +1169,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.customers),
+                                      navigateToSection(_Section.customers),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.attach_money_rounded,
@@ -1115,7 +1178,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.finance),
+                                      navigateToSection(_Section.finance),
                                 ),
                                 _SidebarTile(
                                   icon: Icons.analytics_rounded,
@@ -1125,7 +1188,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.analytics),
+                                      navigateToSection(_Section.analytics),
                                 ),
                                 const SizedBox(height: 8),
                                 // ── Divider between Main and System groups ──
@@ -1147,7 +1210,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   isDark: isDark,
                                   isExpanded: renderExpanded,
                                   onTap: () =>
-                                      _navigateToSection(_Section.settings),
+                                      navigateToSection(_Section.settings),
                                 ),
                               ],
                             ),
@@ -1167,7 +1230,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                             child: _SidebarLogoutButton(
                               isDark: isDark,
                               isExpanded: renderExpanded,
-                              onTap: _logout,
+                              onTap: logout,
                             ),
                           ),
                         ],
@@ -1208,7 +1271,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                 ? Icons.menu_open_rounded
                                 : Icons.menu_rounded,
                             isDark: isDark,
-                            onTap: _toggleSidebar,
+                            onTap: toggleSidebar,
                             tooltip: _isSidebarOpen
                                 ? 'topbar.close_sidebar'.tr(context: context)
                                 : 'topbar.open_sidebar'.tr(context: context),
@@ -1449,7 +1512,11 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
             ],
           ),
           if (_isUserBlocked)
-            const Positioned.fill(child: _AccountBlockedOverlay()),
+            Positioned.fill(
+              child: _AccountBlockedOverlay(
+                onReturnToLogin: _returnToLoginFromBlockedAccount,
+              ),
+            ),
         ],
       ),
     );
@@ -1499,7 +1566,9 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 }
 
 class _AccountBlockedOverlay extends StatelessWidget {
-  const _AccountBlockedOverlay();
+  const _AccountBlockedOverlay({required this.onReturnToLogin});
+
+  final VoidCallback onReturnToLogin;
 
   Future<void> _openTelegram(BuildContext context) async {
     final uri = Uri.parse('https://t.me/+998501551809');
@@ -1589,6 +1658,23 @@ class _AccountBlockedOverlay extends StatelessWidget {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  OutlinedButton.icon(
+                    onPressed: onReturnToLogin,
+                    icon: const Icon(Icons.login_rounded),
+                    label: const Text('Login sahifasiga qaytish'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white54),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 14,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
                       ),
                     ),
                   ),
