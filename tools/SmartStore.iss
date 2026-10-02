@@ -22,8 +22,10 @@ DefaultDirName={localappdata}\Programs\SmartStore
 DefaultGroupName=SmartStore
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+CloseApplications=yes
+CloseApplicationsFilter=smart_store.exe
 OutputDir={#OutputDir}
 OutputBaseFilename=SmartStore-Setup-{#AppVersion}
 SetupIconFile={#AppIconFile}
@@ -36,11 +38,11 @@ WizardStyle=modern
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
 
 [Files]
-Source: "{#BuildDir}\*"; DestDir: "{app}"; Excludes: "*.lib,*.exp,*.pdb,user_data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#BuildDir}\*"; DestDir: "{app}"; Excludes: "*.lib,*.exp,*.pdb,updater.exe,user_data\*"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{autoprograms}\SmartStore"; Filename: "{app}\smart_store.exe"
 Name: "{autodesktop}\SmartStore"; Filename: "{app}\smart_store.exe"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\smart_store.exe"; Description: "Launch SmartStore"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\smart_store.exe"; Description: "Launch SmartStore"; Flags: postinstall nowait

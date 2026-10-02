@@ -21,7 +21,26 @@
     "online": "Onlayn",
     "offline": "Oflayn",
     "support": "Qo'llab-quvvatlash",
-    "notifications": "Bildirishnomalar"
+    "notifications": "Bildirishnomalar",
+    "update_available": "Yangilanish mavjud"
+  },
+  "update": {
+    "checking": "Yangilanishlar tekshirilmoqda...",
+    "starting": "SmartStore ishga tushmoqda...",
+    "title": "Yangi yangilanish mavjud",
+    "version_comparison": "Joriy versiya: {0}\nYangi versiya: {1}",
+    "whats_new": "Yangiliklar",
+    "fallback_notes": "Xatolar tuzatildi va ishlash tezligi yaxshilandi.",
+    "now": "Hozir yangilash",
+    "later": "Keyinroq",
+    "retry": "Qayta urinish",
+    "downloading": "Installer yuklab olinmoqda...",
+    "verifying": "Fayl tekshirilmoqda...",
+    "installing": "Yangilanish o'rnatilmoqda...",
+    "restarting": "SmartStore qayta ishga tushmoqda...",
+    "working": "Yangilanish bajarilmoqda...",
+    "cancel_download": "Yuklashni bekor qilish",
+    "download_error": "Yangilanishni yuklab yoki ishga tushirib bo'lmadi. Qayta urinib ko'ring."
   },
   "titles": {
     "home": "Boshqaruv paneli",

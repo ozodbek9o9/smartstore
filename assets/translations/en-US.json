@@ -21,7 +21,26 @@
     "online": "Online",
     "offline": "Offline",
     "support": "Support Center",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "update_available": "Update available"
+  },
+  "update": {
+    "checking": "Checking for updates...",
+    "starting": "Starting SmartStore...",
+    "title": "New update available",
+    "version_comparison": "Current version: {0}\nNew version: {1}",
+    "whats_new": "What's new",
+    "fallback_notes": "Bug fixes and performance improvements.",
+    "now": "Update now",
+    "later": "Later",
+    "retry": "Retry",
+    "downloading": "Downloading installer...",
+    "verifying": "Verifying file...",
+    "installing": "Installing update...",
+    "restarting": "Restarting SmartStore...",
+    "working": "Updating SmartStore...",
+    "cancel_download": "Cancel download",
+    "download_error": "The update could not be downloaded or started. Please retry."
   },
   "titles": {
     "home": "Dashboard",

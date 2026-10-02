@@ -51,4 +51,12 @@ if ($LASTEXITCODE -ne 0) {
   throw "Inno Setup failed with exit code $LASTEXITCODE."
 }
 
-Write-Output "Installer: $(Join-Path $outputPath "SmartStore-Setup-$Version.exe")"
+$installerPath = Join-Path $outputPath "SmartStore-Setup-$Version.exe"
+$installerName = Split-Path $installerPath -Leaf
+$installerHash = (Get-FileHash $installerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+Set-Content -Path "$installerPath.sha256" `
+  -Value "$installerHash  $installerName" -Encoding ascii
+
+Write-Output "Installer: $installerPath"
+Write-Output "Checksum:  $installerPath.sha256"
+Write-Output "SHA256:    $installerHash"

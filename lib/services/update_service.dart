@@ -17,75 +17,141 @@ enum UpdateStatus {
   verifying,
   installing,
   restarting,
+  cancelled,
   failed,
 }
 
 class UpdateService extends ChangeNotifier {
   UpdateService({
-    this.manifestUri = defaultManifestUri,
     this.currentVersion = currentAppVersion,
+    this.owner = UpdateEnvironment.githubOwner,
+    this.repository = UpdateEnvironment.githubRepository,
     http.Client? client,
   }) : _client = client ?? http.Client();
 
-  static const defaultManifestUri =
-      'https://fra.cloud.appwrite.io/v1/storage/buckets/6a89db6600013a5d5784/files/version-json/view?project=6a89daa60002f8486d30';
   static const currentAppVersion = String.fromEnvironment(
     'SMARTSTORE_VERSION',
     defaultValue: '1.0.0',
   );
 
-  final String manifestUri;
   final String currentVersion;
+  final String owner;
+  final String repository;
   final http.Client _client;
   UpdateInfo? update;
   UpdateStatus status = UpdateStatus.idle;
   double? progress;
   String? errorMessage;
+  DateTime? _lastCheckedAt;
+  Future<UpdateInfo?>? _activeCheck;
+  Future<UpdateInfo?>? _initialCheck;
+  Completer<void>? _downloadAbort;
   Timer? _periodicTimer;
   bool _operationInProgress = false;
+  bool startupComplete = false;
 
   bool get isUpdating => _operationInProgress;
+  Future<UpdateInfo?> get initialCheck =>
+      _initialCheck ?? Future<UpdateInfo?>.value();
 
   void start() {
-    unawaited(checkForUpdate());
+    if (!Platform.isWindows) {
+      _initialCheck ??= Future<UpdateInfo?>.value();
+      return;
+    }
+    _initialCheck ??= checkForUpdate(force: true);
     _periodicTimer ??= Timer.periodic(
       const Duration(hours: 6),
       (_) => unawaited(checkForUpdate()),
     );
   }
 
-  Future<UpdateInfo?> checkForUpdate() async {
-    if (_operationInProgress) return update;
+  Future<UpdateInfo?> checkForUpdate({bool force = false}) {
+    if (_operationInProgress) {
+      return Future<UpdateInfo?>.value(update);
+    }
+    if (_activeCheck != null) return _activeCheck!;
+    final lastChecked = _lastCheckedAt;
+    if (!force &&
+        lastChecked != null &&
+        DateTime.now().difference(lastChecked) < const Duration(hours: 6)) {
+      return Future<UpdateInfo?>.value(update);
+    }
     status = UpdateStatus.checking;
     notifyListeners();
+    final check = _performCheck();
+    _activeCheck = check;
+    return check.whenComplete(() => _activeCheck = null);
+  }
+
+  Future<UpdateInfo?> _performCheck() async {
     try {
-      final uri = Uri.tryParse(manifestUri);
-      if (uri == null || uri.scheme != 'https') {
-        throw const FormatException('Manifest URL must use HTTPS');
-      }
+      _lastCheckedAt = DateTime.now();
       final response = await _client
-          .get(uri, headers: _appwriteHeaders)
-          .timeout(const Duration(seconds: 12));
+          .get(
+            UpdateEnvironment.latestReleaseUriFor(owner, repository),
+            headers: _githubHeaders,
+          )
+          .timeout(const Duration(seconds: 8));
+      if (response.statusCode == 404) {
+        update = null;
+        status = UpdateStatus.idle;
+        notifyListeners();
+        return null;
+      }
       if (response.statusCode != 200) {
-        throw HttpException('Update server unavailable');
+        throw HttpException('GitHub unavailable');
       }
       final decoded = jsonDecode(response.body);
       if (decoded is! Map) {
-        throw const FormatException('Invalid update manifest');
+        throw const FormatException('Invalid GitHub release');
       }
-      final candidate = UpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
-      if (compareVersions(candidate.version, currentVersion) > 0) {
-        update = candidate;
-        status = UpdateStatus.available;
-      } else {
+      final candidate = UpdateInfo.fromGitHubRelease(
+        Map<String, dynamic>.from(decoded),
+        owner: owner,
+        repository: repository,
+      );
+      if (compareVersions(candidate.version, currentVersion) <= 0) {
         update = null;
         status = UpdateStatus.idle;
+        notifyListeners();
+        return null;
       }
+
+      final checksumResponse = await _client
+          .get(candidate.checksumUrl, headers: _downloadHeaders)
+          .timeout(const Duration(seconds: 10));
+      if (checksumResponse.statusCode != 200) {
+        throw const FormatException('Release checksum is unavailable');
+      }
+      final checksum = RegExp(
+        r'\b[0-9a-fA-F]{64}\b',
+      ).firstMatch(checksumResponse.body)?.group(0)?.toLowerCase();
+      if (checksum == null) {
+        throw const FormatException('Invalid release checksum');
+      }
+      update = candidate.withSha256(checksum);
+      status = UpdateStatus.available;
     } catch (_) {
+      update = null;
       status = UpdateStatus.idle;
     }
     notifyListeners();
     return update;
+  }
+
+  void markStartupComplete() {
+    startupComplete = true;
+    notifyListeners();
+  }
+
+  void cancelDownload() {
+    final abort = _downloadAbort;
+    if (status == UpdateStatus.downloading &&
+        abort != null &&
+        !abort.isCompleted) {
+      abort.complete();
+    }
   }
 
   Future<void> install() async {
@@ -104,9 +170,15 @@ class UpdateService extends ChangeNotifier {
       temporaryDirectory = await Directory.systemTemp.createTemp(
         'smartstore-update-',
       );
-      final packageFile = File('${temporaryDirectory.path}\\update.zip');
-      final request = http.Request('GET', candidate.downloadUrl)
-        ..headers.addAll(_appwriteHeaders);
+      final packageFile = File(
+        '${temporaryDirectory.path}${Platform.pathSeparator}SmartStore-Setup-${candidate.version}.exe',
+      );
+      _downloadAbort = Completer<void>();
+      final request = http.AbortableRequest(
+        'GET',
+        candidate.downloadUrl,
+        abortTrigger: _downloadAbort!.future,
+      )..headers.addAll(_downloadHeaders);
       final response = await _client
           .send(request)
           .timeout(const Duration(minutes: 10));
@@ -116,13 +188,16 @@ class UpdateService extends ChangeNotifier {
       final total = response.contentLength ?? candidate.sizeBytes;
       var received = 0;
       final sink = packageFile.openWrite();
-      await for (final chunk in response.stream) {
-        sink.add(chunk);
-        received += chunk.length;
-        progress = total == null ? null : received / total;
-        notifyListeners();
+      try {
+        await for (final chunk in response.stream) {
+          sink.add(chunk);
+          received += chunk.length;
+          progress = total <= 0 ? null : received / total;
+          notifyListeners();
+        }
+      } finally {
+        await sink.close();
       }
-      await sink.close();
 
       status = UpdateStatus.verifying;
       progress = null;
@@ -131,36 +206,35 @@ class UpdateService extends ChangeNotifier {
       if (digest.toLowerCase() != candidate.sha256) {
         throw const FormatException('Update SHA-256 mismatch');
       }
-      if (candidate.sizeBytes != null &&
+      if (candidate.sizeBytes > 0 &&
           packageFile.lengthSync() != candidate.sizeBytes) {
         throw const FormatException('Update size mismatch');
       }
 
       status = UpdateStatus.installing;
       notifyListeners();
-      final executable = File(Platform.resolvedExecutable);
-      final updater = File('${executable.parent.path}\\updater.exe');
-      if (!await updater.exists()) {
-        throw FileSystemException('updater.exe not found');
-      }
-      final result = await Process.start(updater.path, [
-        '--parent-pid',
-        pid.toString(),
-        '--install-dir',
-        executable.parent.path,
-        '--package',
-        packageFile.path,
-        '--sha256',
-        candidate.sha256,
-        '--restart-exe',
-        executable.path,
+      await Process.start(packageFile.path, [
+        '/VERYSILENT',
+        '/SUPPRESSMSGBOXES',
+        '/NORESTART',
+        '/CLOSEAPPLICATIONS',
+        '/RESTARTAPPLICATIONS',
       ], mode: ProcessStartMode.detached);
-      result.stdout.drain<void>();
-      result.stderr.drain<void>();
       status = UpdateStatus.restarting;
       notifyListeners();
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await Future<void>.delayed(const Duration(milliseconds: 350));
       exit(0);
+    } on http.RequestAbortedException {
+      status = UpdateStatus.cancelled;
+      errorMessage = null;
+      _operationInProgress = false;
+      progress = null;
+      notifyListeners();
+      if (temporaryDirectory != null) {
+        try {
+          await temporaryDirectory.delete(recursive: true);
+        } catch (_) {}
+      }
     } catch (error) {
       errorMessage = error.toString();
       status = UpdateStatus.failed;
@@ -171,38 +245,31 @@ class UpdateService extends ChangeNotifier {
           await temporaryDirectory.delete(recursive: true);
         } catch (_) {}
       }
+    } finally {
+      _downloadAbort = null;
+      _operationInProgress = false;
     }
   }
 
   @override
   void dispose() {
     _periodicTimer?.cancel();
+    cancelDownload();
     _client.close();
     super.dispose();
   }
 
   static int compareVersions(String left, String right) {
-    final a = _parseVersion(left);
-    final b = _parseVersion(right);
-    for (var i = 0; i < 3; i++) {
-      final comparison = a[i].compareTo(b[i]);
-      if (comparison != 0) return comparison;
-    }
-    return 0;
+    return UpdateServiceVersion.compare(left, right);
   }
 
-  static List<int> _parseVersion(String value) {
-    final match = RegExp(r'^(\d+)\.(\d+)\.(\d+)').firstMatch(value.trim());
-    if (match == null) throw const FormatException('Invalid semantic version');
-    return [
-      int.parse(match.group(1)!),
-      int.parse(match.group(2)!),
-      int.parse(match.group(3)!),
-    ];
-  }
-
-  static const _appwriteHeaders = {
-    'Accept': 'application/json',
-    'X-Appwrite-Project': UpdateEnvironment.appwriteProjectId,
+  static const _githubHeaders = {
+    'Accept': 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'SmartStore-Updater',
+  };
+  static const _downloadHeaders = {
+    'Accept': 'application/octet-stream',
+    'User-Agent': 'SmartStore-Updater',
   };
 }

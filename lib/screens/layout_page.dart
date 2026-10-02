@@ -13,6 +13,9 @@ import 'package:smart_store/screens/theme_controller.dart';
 import '../main.dart' show SmartStoreColors;
 import '../utils/notification_controller.dart';
 import '../utils/tenant_firestore.dart';
+import '../services/update_service.dart';
+import '../widgets/update_dialog.dart';
+import '../widgets/update_layer.dart';
 import 'home_page.dart';
 import 'selling_page.dart';
 import 'adding_page.dart';
@@ -1057,6 +1060,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final updateService = UpdateServiceScope.of(context);
     final isDark = ThemeController.instance.isDarkMode;
 
     final sidebarBg = isDark ? SmartStoreColors.darkSurface : _lightSidebar;
@@ -1292,6 +1296,22 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           ),
 
                           const Spacer(),
+
+                          if (updateService.update != null) ...[
+                            _TopBarIconButton(
+                              icon: Icons.system_update_alt_rounded,
+                              isDark: isDark,
+                              onTap: () => showUpdateDialog(
+                                context: context,
+                                service: updateService,
+                                currentVersion: UpdateService.currentAppVersion,
+                              ),
+                              tooltip: 'topbar.update_available'.tr(
+                                context: context,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
 
                           // Support Center
                           _TopBarIconButton(

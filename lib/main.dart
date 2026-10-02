@@ -6,9 +6,11 @@ import 'package:smart_store/screens/theme_controller.dart';
 import 'firebase_options.dart';
 import 'screens/layout_page.dart';
 import 'login_page.dart';
+import 'services/update_service.dart';
 import 'widgets/update_layer.dart';
 
 Object? _firebaseInitError;
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -84,6 +86,7 @@ class SmartStoreApp extends StatelessWidget {
       animation: ThemeController.instance,
       builder: (context, _) {
         return MaterialApp(
+          navigatorKey: _rootNavigatorKey,
           title: 'SmartStore Console',
           debugShowCheckedModeBanner: false,
           locale: context.locale,
@@ -94,8 +97,10 @@ class SmartStoreApp extends StatelessWidget {
           themeMode: ThemeController.instance.isDarkMode
               ? ThemeMode.dark
               : ThemeMode.light,
-          builder: (context, child) =>
-              UpdateLayer(child: child ?? const SizedBox.shrink()),
+          builder: (context, child) => UpdateLayer(
+            navigatorKey: _rootNavigatorKey,
+            child: child ?? const SizedBox.shrink(),
+          ),
           home: _firebaseInitError == null
               ? const SplashScreen()
               : _FirebaseInitErrorScreen(error: _firebaseInitError!),
@@ -322,6 +327,7 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with SingleTickerProviderStateMixin {
+  UpdateService? _updateService;
   late final AnimationController _controller;
   late final Animation<double> _fade;
   late final Animation<double> _scale;
@@ -348,17 +354,21 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
+    final updateService = _updateService;
+    if (updateService != null) {
+      await updateService.initialCheck.timeout(
+        const Duration(seconds: 5),
+        onTimeout: () => null,
+      );
+    }
+    if (!mounted) return;
+
     final isLoggedIn = FirebaseAuth.instance.currentUser != null;
 
-    if (isLoggedIn) {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/home');
-      }
-    } else {
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/login');
-      }
-    }
+    Navigator.of(context).pushReplacementNamed(isLoggedIn ? '/home' : '/login');
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      updateService?.markStartupComplete();
+    });
   }
 
   @override
@@ -369,6 +379,8 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   Widget build(BuildContext context) {
+    final updateService = UpdateServiceScope.of(context);
+    _updateService = updateService;
     return Scaffold(
       body: Container(
         decoration: BoxDecoration(
@@ -420,6 +432,19 @@ class _SplashScreenState extends State<SplashScreen>
                     ),
                   ),
                   const SizedBox(height: 4),
+                  const SizedBox(height: 12),
+                  AnimatedBuilder(
+                    animation: updateService,
+                    builder: (context, _) => Text(
+                      updateService.status == UpdateStatus.checking
+                          ? 'update.checking'.tr()
+                          : 'update.starting'.tr(),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 14,
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 40),
                   SizedBox(
                     width: 200,
