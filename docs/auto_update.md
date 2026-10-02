@@ -24,6 +24,28 @@ Start from `tools/update-server/version.json` and replace the URL, SHA-256, and 
 
 The client rejects non-HTTPS URLs, malformed versions, invalid hashes, wrong sizes, and hash mismatches. Network failures are silent and retried every six hours. The user sees a non-modal top-right reminder. Clicking Update downloads and verifies the package before starting `updater.exe`.
 
+## First-time installation
+
+Send customers the setup file, not `smart_store.exe` by itself. The installer
+includes the full Flutter release bundle (runtime DLLs and `data/`) and creates
+a Start menu shortcut; a desktop shortcut can be selected during setup.
+
+Install Inno Setup 6 on the build computer, then run:
+
+```powershell
+flutter build windows --release --dart-define=SMARTSTORE_VERSION=1.0.0
+.\tools\build_installer.ps1 -Version 1.0.0
+```
+
+The installer is written to `dist/SmartStore-Setup-1.0.0.exe`. Upload and send
+that `.exe` through Telegram. On another Windows x64 computer, download the
+installer, choose **Save**, then run it from Downloads and accept Windows'
+confirmation prompt. SmartScreen may show an unknown-publisher warning until
+the installer is signed with a code-signing certificate.
+
+The setup `.exe` is for first installation. `tools/package_update.ps1` creates
+the ZIP used by the in-app auto-updater and should not be sent as an installer.
+
 ## Build and publish
 
 1. Change `version:` in `pubspec.yaml`, for example `1.0.1+2`.
