@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/layout_page.dart';
+import 'services/account_credential_security.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -116,7 +117,25 @@ class _LoginPageState extends State<LoginPage>
     if (snapshot.docs.isEmpty) return null;
 
     final customer = snapshot.docs.first.data();
-    if (customer['password']?.toString() != password) {
+    final storedHash = customer['passwordHash']?.toString();
+    final passwordIsProtected =
+        customer['passwordProtectionEnabled'] == true ||
+        (storedHash != null && storedHash.isNotEmpty);
+    if (passwordIsProtected &&
+        !AccountCredentialSecurity.hasBcryptHash(storedHash)) {
+      if (customer['password']?.toString() != password) {
+        _showError('Username yoki parol noto\'g\'ri.');
+        return false;
+      }
+    } else if (customer['password']?.toString().isNotEmpty == true) {
+      if (customer['password']?.toString() != password) {
+        _showError('Username yoki parol noto\'g\'ri.');
+        return false;
+      }
+    } else if (!await AccountCredentialSecurity.verifyPassword(
+      password,
+      customer,
+    )) {
       _showError('Username yoki parol noto\'g\'ri.');
       return false;
     }
@@ -124,11 +143,22 @@ class _LoginPageState extends State<LoginPage>
       await _showBlockedDialog();
       return false;
     }
-
     final credential = await FirebaseAuth.instance.signInAnonymously();
     final user = credential.user;
     if (user == null) {
       throw StateError('Firebase anonymous sessiyasi ochilmadi.');
+    }
+
+    if (customer['password']?.toString().isNotEmpty == true &&
+        passwordIsProtected) {
+      final migratedHash = await AccountCredentialSecurity.hashPassword(
+        password,
+      );
+      await snapshot.docs.first.reference.update({
+        'passwordHash': migratedHash,
+        'password': FieldValue.delete(),
+        'passwordProtectionEnabled': true,
+      });
     }
 
     await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
@@ -139,6 +169,7 @@ class _LoginPageState extends State<LoginPage>
       'customerId': snapshot.docs.first.id,
       'isBlocked': false,
       'authProvider': 'anonymous_customer',
+      'passwordProtectionEnabled': passwordIsProtected,
     }, SetOptions(merge: true));
     return true;
   }

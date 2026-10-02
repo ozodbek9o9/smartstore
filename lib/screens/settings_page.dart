@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'theme_controller.dart';
+import '../services/account_credential_security.dart';
 import '../services/auth_service.dart';
 import '../utils/tenant_firestore.dart';
 
@@ -28,6 +29,7 @@ class _SettingsPageState extends State<SettingsPage> {
   bool _obscureCurrentPassword = true;
   bool _obscureNewPassword = true;
   bool _obscureConfirmPassword = true;
+  bool _credentialSecurityEnabled = false;
   String _loadedUsername = '';
   String _customerId = '';
 
@@ -61,6 +63,20 @@ class _SettingsPageState extends State<SettingsPage> {
       _loadedUsername = data['username']?.toString() ?? '';
       _usernameController.text = _loadedUsername;
       _customerId = data['customerId']?.toString() ?? '';
+      _credentialSecurityEnabled = data['passwordProtectionEnabled'] == true;
+      if (_customerId.isEmpty) {
+        _credentialSecurityEnabled = true;
+      } else {
+        final customer = await FirebaseFirestore.instance
+            .collection('customers')
+            .doc(_customerId)
+            .get();
+        final customerData = customer.data() ?? const <String, dynamic>{};
+        final existingHash = customerData['passwordHash']?.toString();
+        _credentialSecurityEnabled =
+            customerData['passwordProtectionEnabled'] == true ||
+            (existingHash != null && existingHash.isNotEmpty);
+      }
     } catch (error) {
       debugPrint('Unable to load settings: $error');
     } finally {
@@ -180,7 +196,10 @@ class _SettingsPageState extends State<SettingsPage> {
     }
 
     if (currentPassword != null &&
-        customer['password']?.toString() != currentPassword) {
+        !await AccountCredentialSecurity.verifyPassword(
+          currentPassword,
+          customer,
+        )) {
       _showMessage('Joriy parol noto‘g‘ri.', isError: true);
       return false;
     }
@@ -203,8 +222,16 @@ class _SettingsPageState extends State<SettingsPage> {
       'updatedAt': FieldValue.serverTimestamp(),
     };
     if (newPassword != null && newPassword.isNotEmpty) {
-      customerUpdate['password'] = newPassword;
-      customerUpdate['passwordUpdatedAt'] = null;
+      if (_credentialSecurityEnabled) {
+        customerUpdate['passwordHash'] =
+            await AccountCredentialSecurity.hashPassword(newPassword);
+        customerUpdate['password'] = FieldValue.delete();
+      } else {
+        customerUpdate['password'] = newPassword;
+        customerUpdate['passwordHash'] = FieldValue.delete();
+      }
+      customerUpdate['passwordProtectionEnabled'] = _credentialSecurityEnabled;
+      customerUpdate['passwordUpdatedAt'] = FieldValue.serverTimestamp();
     }
     await customerRef.update(customerUpdate);
     await TenantFirestore.userDocument.set({
@@ -214,10 +241,78 @@ class _SettingsPageState extends State<SettingsPage> {
       'fullName': fullName.trim(),
       'customerId': _customerId,
       'authProvider': 'anonymous_customer',
+      'passwordProtectionEnabled': _credentialSecurityEnabled,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
     return true;
   }
+
+  Future<void> _setCredentialSecurity(bool enabled) async {
+    if (!enabled) {
+      _showMessage('account.security_cannot_disable'.tr(), isError: true);
+      return;
+    }
+    if (_credentialSecurityEnabled || _isSaving) return;
+    if (_customerId.isEmpty) {
+      _showMessage('account.security_firebase_managed'.tr());
+      return;
+    }
+
+    setState(() => _isSaving = true);
+    try {
+      final customerRef = FirebaseFirestore.instance
+          .collection('customers')
+          .doc(_customerId);
+      final snapshot = await customerRef.get();
+      final customer = snapshot.data();
+      if (customer == null) {
+        throw StateError('Customer ma’lumotlari topilmadi.');
+      }
+
+      final existingHash = customer['passwordHash']?.toString();
+      final storedPassword = customer['password']?.toString();
+      final hash = AccountCredentialSecurity.hasBcryptHash(existingHash)
+          ? existingHash!
+          : storedPassword == null || storedPassword.isEmpty
+          ? throw StateError('Saqlangan parol topilmadi. Parolni yangilang.')
+          : await AccountCredentialSecurity.hashPassword(storedPassword);
+
+      final batch = FirebaseFirestore.instance.batch();
+      batch.update(customerRef, {
+        'passwordHash': hash,
+        'password': FieldValue.delete(),
+        'passwordProtectionEnabled': true,
+        'passwordUpdatedAt': FieldValue.serverTimestamp(),
+      });
+      batch.set(TenantFirestore.userDocument, {
+        'passwordProtectionEnabled': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await batch.commit();
+
+      if (mounted) setState(() => _credentialSecurityEnabled = true);
+      _showMessage('account.security_enabled'.tr());
+    } catch (error) {
+      _showMessage(error.toString(), isError: true);
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
+    }
+  }
+
+  Widget _securitySwitch() => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        'account.security_title'.tr(),
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      ),
+      Switch.adaptive(
+        value: _credentialSecurityEnabled,
+        onChanged: _isSaving ? null : _setCredentialSecurity,
+      ),
+    ],
+  );
 
   Future<void> _showDeleteAccountDialog() async {
     await showDialog<void>(
@@ -427,12 +522,33 @@ class _SettingsPageState extends State<SettingsPage> {
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  sectionTitle(
-                                    Icons.person_rounded,
-                                    const Color(0xFF4F46E5),
-                                    'account.profile_title'.tr(),
-                                    'account.profile_desc'.tr(),
-                                  ),
+                                  if (isWide)
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: sectionTitle(
+                                            Icons.person_rounded,
+                                            const Color(0xFF4F46E5),
+                                            'account.profile_title'.tr(),
+                                            'account.profile_desc'.tr(),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 16),
+                                        _securitySwitch(),
+                                      ],
+                                    )
+                                  else ...[
+                                    sectionTitle(
+                                      Icons.person_rounded,
+                                      const Color(0xFF4F46E5),
+                                      'account.profile_title'.tr(),
+                                      'account.profile_desc'.tr(),
+                                    ),
+                                    Align(
+                                      alignment: Alignment.centerRight,
+                                      child: _securitySwitch(),
+                                    ),
+                                  ],
                                   const SizedBox(height: 22),
                                   pair(
                                     TextField(
