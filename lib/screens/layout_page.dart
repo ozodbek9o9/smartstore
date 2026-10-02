@@ -2115,18 +2115,36 @@ class _SidebarTileState extends State<_SidebarTile>
       },
     );
 
-    return Container(
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
       margin: const EdgeInsets.only(bottom: 2),
       decoration: BoxDecoration(
         color: widget.active ? null : Colors.transparent,
         gradient: widget.active
             ? const LinearGradient(
-                begin: Alignment.bottomLeft,
-                end: Alignment.topRight,
-                colors: [Colors.lightBlue, Colors.lightGreen],
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [Color(0xFF1E3A8A), Color(0xFF0F766E)],
               )
             : null,
         borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: widget.active
+              ? Colors.white.withValues(alpha: 0.14)
+              : Colors.transparent,
+        ),
+        boxShadow: widget.active
+            ? [
+                BoxShadow(
+                  color: const Color(
+                    0xFF0F766E,
+                  ).withValues(alpha: widget.isDark ? 0.2 : 0.14),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
+            : const [],
       ),
       child: Material(
         color: Colors.transparent,
