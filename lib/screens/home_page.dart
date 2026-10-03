@@ -539,6 +539,8 @@ class _DebtSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final debtSalesCount =
+        overview.sales.where((s) => s.boolean('isDebtSale')).length;
     final tiles = [
       _DebtTile(
         label: 'home.debt_total'.tr(),
@@ -551,10 +553,8 @@ class _DebtSummary extends StatelessWidget {
       ),
       _DebtTile(
         label: 'home.debt_due'.tr(),
-        value: _money(overview.remainingDebt),
-        subLabel: 'home.debt_due_sub'.tr(
-          args: ['${overview.customersWithDebt}'],
-        ),
+        value: _money(overview.debtSales),
+        subLabel: 'home.debt_sales_sub'.tr(args: ['$debtSalesCount']),
         icon: Icons.access_time_rounded,
         gradient: const [Color(0xFFFBBF24), Color(0xFFF59E0B)],
       ),
@@ -1909,10 +1909,19 @@ class _DashboardOverview {
 
   String get topCategory {
     final cats = <String, int>{};
+    final prodToCat = <String, String>{};
+    for (final p in products) {
+      final c = p.text('category', p.text('type'));
+      if (c.isNotEmpty) prodToCat[p.id] = c;
+    }
     for (final sale in sales) {
       if (!_isToday(sale.date('timestamp'))) continue;
       for (final item in sale.list('items')) {
-        final cat = item['category']?.toString() ?? 'Boshqa';
+        final pid = item['productId']?.toString() ?? '';
+        final cat =
+            (item['category']?.toString().trim().isNotEmpty ?? false)
+                ? item['category'].toString()
+                : (prodToCat[pid] ?? 'Boshqa');
         cats.update(
           cat,
           (v) => v + _asInt(item['quantity']),

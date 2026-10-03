@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'theme_controller.dart';
 import '../services/account_credential_security.dart';
 import '../services/auth_service.dart';
+import '../services/connected_devices_service.dart';
+import '../widgets/connected_devices_card.dart';
 import '../utils/tenant_firestore.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -686,6 +688,14 @@ class _SettingsPageState extends State<SettingsPage> {
                           ),
                         ),
                       ),
+                      const SizedBox(height: 22),
+                      ConnectedDevicesCard(
+                        accountReference: _customerId.isNotEmpty
+                            ? FirebaseFirestore.instance
+                                  .collection('customers')
+                                  .doc(_customerId)
+                            : TenantFirestore.userDocument,
+                      ),
                     ],
                   ),
                 ),
@@ -731,6 +741,7 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
   }
 
   Future<void> _deleteUserFirestoreData() async {
+    await ConnectedDevicesService().releaseCurrentDevice();
     final userRef = TenantFirestore.userDocument;
     final customers = await TenantFirestore.customers.get();
 

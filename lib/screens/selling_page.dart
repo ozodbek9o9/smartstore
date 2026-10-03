@@ -521,8 +521,17 @@ class _SellingPageState extends State<SellingPage> {
           final available =
               (productSnapshots[index].data()?['quantity'] as num?)?.toInt() ??
               0;
+          final newQty = available - item.quantity;
+          // Determine new status based on new quantity
+          String newStatus = 'normal';
+          if (newQty <= 0) {
+            newStatus = 'tugagan';
+          } else if (newQty <= 10) {
+            newStatus = 'kam';
+          }
           transaction.update(productReferences[index], {
-            'quantity': available - item.quantity,
+            'quantity': newQty,
+            'status': newStatus,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         }
@@ -556,6 +565,7 @@ class _SellingPageState extends State<SellingPage> {
             return {
               'productId': item.product.id,
               'productName': item.product.productName,
+              'category': item.product.category,
               'quantity': quantity,
               'originalPrice': originalPrice,
               'price': sellingPrice,
@@ -604,6 +614,7 @@ class _SellingPageState extends State<SellingPage> {
             'saleId': salesDocument.id,
             'productId': item.product.id,
             'productName': item.product.productName,
+            'category': item.product.category,
             'quantity': quantity,
             'originalPrice': originalPrice,
             'sellingPrice': sellingPrice,

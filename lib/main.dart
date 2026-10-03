@@ -6,6 +6,7 @@ import 'package:smart_store/screens/theme_controller.dart';
 import 'firebase_options.dart';
 import 'screens/layout_page.dart';
 import 'login_page.dart';
+import 'services/connected_devices_service.dart';
 import 'widgets/update_layer.dart';
 
 Object? _firebaseInitError;
@@ -102,7 +103,10 @@ class SmartStoreApp extends StatelessWidget {
               ? const SplashScreen()
               : _FirebaseInitErrorScreen(error: _firebaseInitError!),
           routes: {
-            '/login': (context) => const LoginPage(),
+            '/login': (context) => LoginPage(
+              initialErrorKey:
+                  ModalRoute.of(context)?.settings.arguments as String?,
+            ),
             '/home': (context) => const LayoutPage(),
           },
         );
@@ -350,9 +354,27 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    final isLoggedIn = FirebaseAuth.instance.currentUser != null;
+    var isLoggedIn = FirebaseAuth.instance.currentUser != null;
+    String? loginErrorKey;
+    if (isLoggedIn) {
+      try {
+        isLoggedIn = await ConnectedDevicesService()
+            .registerCurrentSession()
+            .timeout(const Duration(seconds: 12));
+        if (!isLoggedIn) loginErrorKey = 'devices.limit_reached';
+      } catch (error) {
+        debugPrint('Unable to verify connected-device limit: $error');
+        isLoggedIn = false;
+        loginErrorKey = 'devices.check_failed';
+      }
+      if (!isLoggedIn) await FirebaseAuth.instance.signOut();
+    }
 
-    Navigator.of(context).pushReplacementNamed(isLoggedIn ? '/home' : '/login');
+    if (!mounted) return;
+    Navigator.of(context).pushReplacementNamed(
+      isLoggedIn ? '/home' : '/login',
+      arguments: loginErrorKey,
+    );
   }
 
   @override

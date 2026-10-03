@@ -217,21 +217,19 @@ class _FinancePageState extends State<FinancePage> {
 
     switch (filter) {
       case _TimeFilter.today:
-        return DateTimeRange(start: today, end: now);
+        return DateTimeRange(
+          start: today,
+          end: today.add(const Duration(days: 1)),
+        );
       case _TimeFilter.thisWeek:
         final weekday = today.weekday;
         final weekStart = today.subtract(Duration(days: weekday - 1));
-        final weekEnd = weekStart
-            .add(const Duration(days: 7))
-            .subtract(const Duration(seconds: 1));
-        final effectiveEnd = now.isAfter(weekEnd) ? weekEnd : now;
-        return DateTimeRange(start: weekStart, end: effectiveEnd);
+        final weekEnd = weekStart.add(const Duration(days: 7));
+        return DateTimeRange(start: weekStart, end: weekEnd);
       case _TimeFilter.thisYear:
         final yearStart = DateTime(now.year, 1, 1);
         final nextYearStart = DateTime(now.year + 1, 1, 1);
-        final yearEnd = nextYearStart.subtract(const Duration(seconds: 1));
-        final effectiveEnd = now.isAfter(yearEnd) ? yearEnd : now;
-        return DateTimeRange(start: yearStart, end: effectiveEnd);
+        return DateTimeRange(start: yearStart, end: nextYearStart);
     }
   }
 
@@ -257,9 +255,7 @@ class _FinancePageState extends State<FinancePage> {
     if (_selectedFilter == _TimeFilter.thisYear) {
       final monthStart = DateTime(now.year, now.month, 1);
       final nextMonthStart = DateTime(now.year, now.month + 1, 1);
-      final monthEnd = nextMonthStart.subtract(const Duration(seconds: 1));
-      final effectiveEnd = now.isAfter(monthEnd) ? monthEnd : now;
-      uiRangeStats = DateTimeRange(start: monthStart, end: effectiveEnd);
+      uiRangeStats = DateTimeRange(start: monthStart, end: nextMonthStart);
     }
 
     _entriesSub = TenantFirestore.inventoryEntries

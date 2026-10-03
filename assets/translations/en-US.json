@@ -213,6 +213,25 @@
     "card_about_item1": "App version info",
     "card_about_item2": "Terms and conditions"
   },
+  "devices": {
+    "title": "Connected devices",
+    "description": "Manage devices allowed to sign in to your account.",
+    "limit": "Device limit",
+    "count": "{0} / {1} slots used",
+    "current": "This device",
+    "last_seen": "Last sign-in: {0}",
+    "remove_title": "Disconnect device",
+    "remove_confirmation": "Disconnect {0} from this account?",
+    "remove": "Disconnect",
+    "cancel": "Cancel",
+    "removed": "Device disconnected.",
+    "empty": "No connected devices yet.",
+    "unknown_device": "Unknown device",
+    "saved": "Device limit saved.",
+    "load_error": "Could not load or save connected-device settings.",
+    "limit_reached": "The device limit is full. Disconnect a device in Settings or increase the limit before signing in here.",
+    "check_failed": "Could not verify the device limit. Check your connection and try again."
+  },
   "about_page": {
     "title": "About SmartStore",
     "hero_subtitle": "The Next Generation Point-of-Sale & Store Management Ecosystem",

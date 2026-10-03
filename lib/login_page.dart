@@ -1,11 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/layout_page.dart';
 import 'services/account_credential_security.dart';
+import 'services/connected_devices_service.dart';
 
 class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+  const LoginPage({super.key, this.initialErrorKey});
+
+  final String? initialErrorKey;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -40,6 +44,11 @@ class _LoginPageState extends State<LoginPage>
       curve: Curves.easeOut,
     );
     _slideController.forward();
+    if (widget.initialErrorKey != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showError(widget.initialErrorKey!.tr());
+      });
+    }
   }
 
   @override
@@ -171,6 +180,17 @@ class _LoginPageState extends State<LoginPage>
       'authProvider': 'anonymous_customer',
       'passwordProtectionEnabled': passwordIsProtected,
     }, SetOptions(merge: true));
+
+    final deviceRegistered = await ConnectedDevicesService().registerDevice(
+      FirebaseFirestore.instance
+          .collection('customers')
+          .doc(snapshot.docs.first.id),
+    );
+    if (!deviceRegistered) {
+      await FirebaseAuth.instance.signOut();
+      _showError('devices.limit_reached'.tr());
+      return false;
+    }
     return true;
   }
 

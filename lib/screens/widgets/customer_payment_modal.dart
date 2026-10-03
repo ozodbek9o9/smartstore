@@ -59,11 +59,11 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
         final currentPaidDebt = customerDoc.data()?['paidDebt'] ?? 0;
 
         if (widget.payAll) {
-          // Pay all debts: if totalDebt becomes 0, paidDebt must also be 0
+          // Pay all debts: remainingDebt becomes 0, paidDebt increases by currentRemainingDebt, totalDebt is preserved.
+          final addedPaid = currentRemainingDebt;
           transaction.update(customerRef, {
-            'totalDebt': 0,
             'remainingDebt': 0,
-            'paidDebt': 0,
+            'paidDebt': FieldValue.increment(addedPaid),
             'lastActivity': FieldValue.serverTimestamp(),
           });
 
@@ -83,7 +83,7 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
               'quantity': debtData['quantity'],
               'amount': debtData['amount'] ?? 0,
               'paymentDate': FieldValue.serverTimestamp(),
-              'isFullPayment': false,
+              'isFullPayment': true,
             });
           }
         } else {
@@ -105,20 +105,14 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
             'isFullPayment': false,
           });
 
-          final newTotal = (currentRemainingDebt - debt.amount).clamp(
-            0,
-            double.infinity,
-          );
           final newRemaining = (currentRemainingDebt - debt.amount).clamp(
             0,
             double.infinity,
           );
-          final newPaid = newTotal == 0 ? 0 : (currentPaidDebt + debt.amount);
 
           transaction.update(customerRef, {
-            'totalDebt': newTotal,
             'remainingDebt': newRemaining,
-            'paidDebt': newPaid,
+            'paidDebt': FieldValue.increment(debt.amount),
             'lastActivity': FieldValue.serverTimestamp(),
           });
         }

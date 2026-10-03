@@ -13,6 +13,7 @@ import 'package:smart_store/screens/theme_controller.dart';
 import '../main.dart' show SmartStoreColors;
 import '../utils/notification_controller.dart';
 import '../utils/tenant_firestore.dart';
+import '../services/connected_devices_service.dart';
 import '../services/update_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/update_layer.dart';
@@ -58,6 +59,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _customerStatusSubscription;
   StreamSubscription<User?>? _authStateSubscription;
+  final _connectedDevicesService = ConnectedDevicesService();
 
   late AnimationController _sidebarController;
   late Animation<double> _sidebarAnimation;
@@ -165,7 +167,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
   Future<void> _returnToLoginFromBlockedAccount() async {
     if (!mounted) return;
-    await FirebaseAuth.instance.signOut();
+    await _releaseDeviceAndSignOut();
     if (!mounted) return;
     Navigator.of(
       context,
@@ -179,7 +181,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     _accountStatusSubscription?.cancel();
 
     try {
-      await FirebaseAuth.instance.signOut();
+      await _releaseDeviceAndSignOut();
     } catch (_) {
       // Navigation must still continue if the local sign-out request fails.
     }
@@ -189,6 +191,15 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
       context,
       rootNavigator: true,
     ).pushNamedAndRemoveUntil('/login', (route) => false);
+  }
+
+  Future<void> _releaseDeviceAndSignOut() async {
+    try {
+      await _connectedDevicesService.releaseCurrentDevice();
+    } catch (error) {
+      debugPrint('Unable to release connected-device slot: $error');
+    }
+    await FirebaseAuth.instance.signOut();
   }
 
   void _startConnectivityCheck() {
@@ -293,7 +304,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           return;
                         }
 
-                        await FirebaseAuth.instance.signOut();
+                        await _releaseDeviceAndSignOut();
                         if (navigator.mounted) {
                           navigator.pushNamedAndRemoveUntil(
                             '/login',

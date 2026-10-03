@@ -213,6 +213,25 @@
     "card_about_item1": "Ilova versiyasi haqida",
     "card_about_item2": "Foydalanish shartlari"
   },
+  "devices": {
+    "title": "Ulangan qurilmalar",
+    "description": "Hisobingizga kirishga ruxsat berilgan qurilmalarni boshqaring.",
+    "limit": "Qurilmalar limiti",
+    "count": "{0} / {1} ta joy band",
+    "current": "Bu qurilma",
+    "last_seen": "Oxirgi kirish: {0}",
+    "remove_title": "Qurilmani uzish",
+    "remove_confirmation": "{0} qurilmasini hisobdan uzmoqchimisiz?",
+    "remove": "Uzish",
+    "cancel": "Bekor qilish",
+    "removed": "Qurilma hisobdan uzildi.",
+    "empty": "Hozircha ulangan qurilmalar yo'q.",
+    "unknown_device": "Noma'lum qurilma",
+    "saved": "Qurilmalar limiti saqlandi.",
+    "load_error": "Qurilmalar ma'lumotini yuklab yoki saqlab bo'lmadi.",
+    "limit_reached": "Qurilmalar limiti to'lgan. Boshqa qurilmadan kirish uchun Sozlamalardan qurilmani uzing yoki limitni oshiring.",
+    "check_failed": "Qurilmalar limitini tekshirib bo'lmadi. Internetni tekshirib qayta urinib ko'ring."
+  },
   "about_page": {
     "title": "SmartStore haqida",
     "hero_subtitle": "Yangi avlod Savdo va Do'kon boshqaruvi ekotizimi",
