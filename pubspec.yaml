@@ -2,7 +2,7 @@ name: smart_store
 description: "Smart Store - manage your business by modern system"
 publish_to: 'none' 
 
-version: 2.2.29+1
+version: 4.2.2+1
 
 environment:
   sdk: ^3.11.3

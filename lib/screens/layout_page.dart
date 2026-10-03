@@ -2325,6 +2325,7 @@ class _ThemeModeSwitch extends StatelessWidget {
                   border: Border.all(color: borderColor),
                 ),
                 child: Stack(
+                  alignment: Alignment.center,
                   children: [
                     AnimatedAlign(
                       alignment: isDark

@@ -70,6 +70,7 @@ class _DailyStats {
   num profit = 0;
   num incoming = 0;
   num salesCount = 0;
+  int customerCount = 0;
   final Set<String> saleIds = {};
 }
 
@@ -372,6 +373,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     final rs = _startOfDay(rangeStart);
     final re = _startOfDay(rangeEnd).add(const Duration(days: 1));
+
+    if (includeDaily) {
+      for (final customer in _customers) {
+        final createdAt = customer.date(
+          'createdAt',
+          fallback: customer.date('lastActivity'),
+        );
+        if (createdAt.isBefore(rs) || !createdAt.isBefore(re)) continue;
+        final dayIndex = _startOfDay(createdAt).difference(rs).inDays;
+        totals.daily[dayIndex]!.customerCount++;
+      }
+    }
 
     for (var entry in _entries) {
       final d = entry.data;
@@ -882,7 +895,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                       textColor,
                       mutedColor,
                       borderColor,
-                      _sparklineFor((d) => d.salesCount, custPct),
+                      _sparklineFor((d) => d.customerCount, custPct),
                       sub:
                           'Qarzdor: ${cust.customersWithDebt} (${_formatCurrency(cust.totalDebt)})',
                     ),
@@ -953,7 +966,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 textColor,
                 mutedColor,
                 borderColor,
-                _sparklineFor((d) => d.salesCount, custPct),
+                _sparklineFor((d) => d.customerCount, custPct),
                 sub:
                     'Qarzdor ${cust.customersWithDebt}: ${_formatCurrency(cust.totalDebt)}',
               ),
