@@ -120,6 +120,21 @@ void main() {
     expect(service.update, isNull);
   });
 
+  test('marks GitHub check failures so the user can retry', () async {
+    final client = MockClient((request) async => http.Response('', 500));
+    final service = UpdateService(
+      owner: _owner,
+      repository: _repository,
+      currentVersion: '1.0.0',
+      client: client,
+    );
+    addTearDown(service.dispose);
+
+    expect(await service.checkForUpdate(force: true), isNull);
+    expect(service.status, UpdateStatus.checkFailed);
+    expect(service.update, isNull);
+  });
+
   test('finds a newer release and fetches its checksum', () async {
     final client = MockClient((request) async {
       if (request.url.path.endsWith('/releases/latest')) {

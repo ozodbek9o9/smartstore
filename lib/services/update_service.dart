@@ -17,6 +17,7 @@ enum UpdateStatus {
   verifying,
   installing,
   restarting,
+  checkFailed,
   cancelled,
   failed,
 }
@@ -44,27 +45,10 @@ class UpdateService extends ChangeNotifier {
   String? errorMessage;
   DateTime? _lastCheckedAt;
   Future<UpdateInfo?>? _activeCheck;
-  Future<UpdateInfo?>? _initialCheck;
   Completer<void>? _downloadAbort;
-  Timer? _periodicTimer;
   bool _operationInProgress = false;
-  bool startupComplete = false;
 
   bool get isUpdating => _operationInProgress;
-  Future<UpdateInfo?> get initialCheck =>
-      _initialCheck ?? Future<UpdateInfo?>.value();
-
-  void start() {
-    if (!Platform.isWindows) {
-      _initialCheck ??= Future<UpdateInfo?>.value();
-      return;
-    }
-    _initialCheck ??= checkForUpdate(force: true);
-    _periodicTimer ??= Timer.periodic(
-      const Duration(hours: 6),
-      (_) => unawaited(checkForUpdate()),
-    );
-  }
 
   Future<UpdateInfo?> checkForUpdate({bool force = false}) {
     if (_operationInProgress) {
@@ -78,6 +62,7 @@ class UpdateService extends ChangeNotifier {
       return Future<UpdateInfo?>.value(update);
     }
     status = UpdateStatus.checking;
+    errorMessage = null;
     notifyListeners();
     final check = _performCheck();
     _activeCheck = check;
@@ -134,15 +119,10 @@ class UpdateService extends ChangeNotifier {
       status = UpdateStatus.available;
     } catch (_) {
       update = null;
-      status = UpdateStatus.idle;
+      status = UpdateStatus.checkFailed;
     }
     notifyListeners();
     return update;
-  }
-
-  void markStartupComplete() {
-    startupComplete = true;
-    notifyListeners();
   }
 
   void cancelDownload() {
@@ -253,7 +233,6 @@ class UpdateService extends ChangeNotifier {
 
   @override
   void dispose() {
-    _periodicTimer?.cancel();
     cancelDownload();
     _client.close();
     super.dispose();

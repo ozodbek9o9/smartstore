@@ -1216,6 +1216,19 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                                   onTap: () =>
                                       navigateToSection(_Section.settings),
                                 ),
+                                _SidebarTile(
+                                  icon: Icons.system_update_alt_rounded,
+                                  label: 'nav.update'.tr(context: context),
+                                  active: false,
+                                  isDark: isDark,
+                                  isExpanded: renderExpanded,
+                                  onTap: () => showUpdateDialog(
+                                    context: context,
+                                    service: updateService,
+                                    currentVersion:
+                                        UpdateService.currentAppVersion,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -1296,22 +1309,6 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           ),
 
                           const Spacer(),
-
-                          if (updateService.update != null) ...[
-                            _TopBarIconButton(
-                              icon: Icons.system_update_alt_rounded,
-                              isDark: isDark,
-                              onTap: () => showUpdateDialog(
-                                context: context,
-                                service: updateService,
-                                currentVersion: UpdateService.currentAppVersion,
-                              ),
-                              tooltip: 'topbar.update_available'.tr(
-                                context: context,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                          ],
 
                           // Support Center
                           _TopBarIconButton(
