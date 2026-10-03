@@ -539,8 +539,9 @@ class _DebtSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final debtSalesCount =
-        overview.sales.where((s) => s.boolean('isDebtSale')).length;
+    final debtSalesCount = overview.sales
+        .where((s) => s.boolean('isDebtSale'))
+        .length;
     final tiles = [
       _DebtTile(
         label: 'home.debt_total'.tr(),
@@ -1918,10 +1919,9 @@ class _DashboardOverview {
       if (!_isToday(sale.date('timestamp'))) continue;
       for (final item in sale.list('items')) {
         final pid = item['productId']?.toString() ?? '';
-        final cat =
-            (item['category']?.toString().trim().isNotEmpty ?? false)
-                ? item['category'].toString()
-                : (prodToCat[pid] ?? 'Boshqa');
+        final cat = (item['category']?.toString().trim().isNotEmpty ?? false)
+            ? item['category'].toString()
+            : (prodToCat[pid] ?? 'Boshqa');
         cats.update(
           cat,
           (v) => v + _asInt(item['quantity']),
@@ -2038,8 +2038,8 @@ class _DashboardOverview {
           sum +
           math.max(0, product.number('quantity')) *
               product.number(
-                'originalPrice',
-                fallback: product.number('costPrice'),
+                'sellingPrice',
+                fallback: product.number('salePrice'),
               ),
     );
 

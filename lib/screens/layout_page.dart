@@ -1464,16 +1464,15 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           ),
                           const SizedBox(width: 8),
 
-                          // Dark Mode Toggle
-                          _TopBarIconButton(
-                            icon: isDark
-                                ? Icons.light_mode_rounded
-                                : Icons.dark_mode_rounded,
+                          _ThemeModeSwitch(
                             isDark: isDark,
-                            onTap: () => ThemeController.instance.toggle(),
-                            tooltip: isDark
-                                ? 'topbar.light_mode'.tr(context: context)
-                                : 'topbar.dark_mode'.tr(context: context),
+                            lightTooltip: 'topbar.light_mode'.tr(
+                              context: context,
+                            ),
+                            darkTooltip: 'topbar.dark_mode'.tr(
+                              context: context,
+                            ),
+                            onChanged: ThemeController.instance.setDarkMode,
                           ),
                           const SizedBox(width: 8),
 
@@ -2268,6 +2267,116 @@ class _TopBarIconButton extends StatelessWidget {
                   ? SmartStoreColors.darkTextPrimary
                   : SmartStoreColors.lightTextPrimary,
               size: 19,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ThemeModeSwitch extends StatelessWidget {
+  const _ThemeModeSwitch({
+    required this.isDark,
+    required this.lightTooltip,
+    required this.darkTooltip,
+    required this.onChanged,
+  });
+
+  final bool isDark;
+  final String lightTooltip;
+  final String darkTooltip;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final tooltip = isDark ? lightTooltip : darkTooltip;
+    final trackColor = isDark
+        ? const Color(0xFF101827)
+        : const Color(0xFFFFF7E8);
+    final borderColor = isDark
+        ? const Color(0xFF35445B)
+        : const Color(0xFFE9D8B2);
+
+    return Tooltip(
+      message: tooltip,
+      child: Semantics(
+        button: true,
+        toggled: isDark,
+        label: isDark ? darkTooltip : lightTooltip,
+        onTap: () => onChanged(!isDark),
+        child: SizedBox(
+          width: 78,
+          height: 40,
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(24),
+            child: InkWell(
+              onTap: () => onChanged(!isDark),
+              borderRadius: BorderRadius.circular(24),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  color: trackColor,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Stack(
+                  children: [
+                    AnimatedAlign(
+                      alignment: isDark
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      duration: const Duration(milliseconds: 260),
+                      curve: Curves.easeOutBack,
+                      child: Container(
+                        width: 34,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? const Color(0xFF34425A)
+                              : const Color(0xFFFFE8BC),
+                          borderRadius: BorderRadius.circular(18),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(
+                                isDark ? 0.18 : 0.08,
+                              ),
+                              blurRadius: 5,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Icon(
+                            Icons.light_mode_rounded,
+                            size: 19,
+                            color: isDark
+                                ? colors.onSurfaceVariant
+                                : const Color(0xFFDA8A12),
+                          ),
+                        ),
+                        Expanded(
+                          child: Icon(
+                            Icons.dark_mode_rounded,
+                            size: 18,
+                            color: isDark
+                                ? const Color(0xFFC6D5F4)
+                                : colors.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         ),
