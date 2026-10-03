@@ -54,12 +54,20 @@ class StockProduct {
       calculatedStatus = 'kam';
     }
 
-    final costPrice = data['costPrice'] as num? ?? 0;
-    final salePrice = data['salePrice'] as num? ?? 0;
+    final String name =
+        data['name']?.toString().trim() ??
+        data['productName']?.toString().trim() ??
+        '';
+    final costPrice = (data['costPrice'] ?? data['originalPrice'] ?? 0) as num;
+    final salePrice = (data['salePrice'] ?? data['sellingPrice'] ?? 0) as num;
+
+    final String status = q == 0
+        ? 'tugagan'
+        : (q <= 10 ? 'kam' : (data['status']?.toString() ?? 'normal'));
 
     return StockProduct(
       id: doc.id,
-      name: data['name'] ?? '',
+      name: name,
       barcode: data['barcode'] ?? '',
       quantity: q,
       unitType: data['unitType'] ?? 'Dona',
@@ -67,7 +75,7 @@ class StockProduct {
       salePrice: salePrice,
       profit: salePrice - costPrice,
       category: data['category'] ?? 'Boshqa',
-      status: data['status'] ?? calculatedStatus,
+      status: status,
       lastUpdate: parseDate(data['lastUpdate']),
       attempts: (data['attempts'] as num? ?? 1).toInt(),
     );
@@ -436,9 +444,40 @@ class _StockPageState extends State<StockPage> {
 
     if (confirmed != true) return;
 
+    String username = 'Unknown';
+    try {
+      final profile = await TenantFirestore.userDocument.get();
+      username = (profile.data()?['username'] ?? 'Unknown').toString();
+    } catch (_) {}
+
+    final batch = FirebaseFirestore.instance.batch();
     for (final id in _selectedProductIds) {
-      await TenantFirestore.products.doc(id).delete();
+      final docSnap = await TenantFirestore.products.doc(id).get();
+      if (docSnap.exists) {
+        final data = docSnap.data() ?? {};
+        final q = (data['quantity'] as num?) ?? 0;
+        final cost = (data['costPrice'] ?? data['originalPrice'] ?? 0) as num;
+        final name = (data['name'] ?? data['productName'] ?? '').toString();
+        if (q > 0) {
+          final entryRef = TenantFirestore.inventoryEntries.doc();
+          batch.set(entryRef, {
+            'type': 'adjustment_outgoing',
+            'productId': id,
+            'productName': name,
+            'quantity': q,
+            'originalPrice': cost,
+            'sellingPrice': 0,
+            'totalCostValue': (q * cost).toDouble(),
+            'totalSaleValue': 0,
+            'totalProfit': 0,
+            'user': username,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+        }
+        batch.delete(docSnap.reference);
+      }
     }
+    await batch.commit();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

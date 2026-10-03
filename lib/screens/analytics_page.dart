@@ -572,14 +572,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     }
 
     if (!hasAnyRealData) {
-      int seed = fallbackSeed.isFinite ? fallbackSeed.toInt() : 0;
-      final rand = math.Random(seed);
-      double cur = 10;
-      return List.generate(7, (i) {
-        final s = FlSpot(i.toDouble(), cur);
-        cur += (rand.nextDouble() - (fallbackSeed < 0 ? 0.7 : 0.3)) * 5;
-        return s;
-      });
+      return List.generate(7, (i) => FlSpot(i.toDouble(), 0));
     }
     return spots;
   }
@@ -806,15 +799,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final incomingPct = _calcPercentage(curIncomingQty, prevIncomingQty);
 
     final curCust = cust.totalCustomers;
-    final prevCust = _customers.isNotEmpty
-        ? math.max(1, (cust.totalCustomers * 0.9).toInt())
-        : 0;
-    final custPct = cust.totalCustomers == 0
-        ? 0.0
-        : _calcPercentage(
-            cust.totalCustomers,
-            math.max(1, prevCust),
-          ).toDouble();
+    final prevCustCount = _customers.where((c) {
+      final created = c.date('createdAt', fallback: c.date('lastActivity'));
+      return created.isBefore(pr.end);
+    }).length;
+    final custPct = prevCustCount == 0
+        ? (curCust == 0 ? 0.0 : 100.0)
+        : _calcPercentage(curCust, prevCustCount).toDouble();
 
     final salesPctD = salesPct.toDouble();
     final profPctD = profPct.toDouble();
