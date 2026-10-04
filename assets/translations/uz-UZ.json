@@ -8,6 +8,7 @@
     "customers": "Mijozlar",
     "finance": "Moliya",
     "analytics": "Tahlil",
+    "reports": "Hisobot",
     "settings": "Sozlamalar",
     "update": "Yangilash",
     "logout": "Chiqish",
@@ -23,6 +24,8 @@
     "offline": "Oflayn",
     "support": "Qo'llab-quvvatlash",
     "notifications": "Bildirishnomalar",
+    "sync_sales": "Navbatdagi savdolarni sinxronlash",
+    "sync_retry": "Sinxronlashni qayta urinish",
     "update_available": "Yangilanish mavjud"
   },
   "update": {
@@ -55,7 +58,37 @@
     "customers": "Mijozlar",
     "finance": "Moliya",
     "analytics": "Tahlil",
+    "reports": "Hisobot",
     "settings": "Sozlamalar"
+  },
+  "reports": {
+    "daily": "Kunlik",
+    "weekly": "Haftalik",
+    "monthly": "Oylik",
+    "yearly": "Yillik",
+    "daily_comparison": "Kecha vs Bugungi kun",
+    "weekly_comparison": "O'tgan hafta vs Bu hafta",
+    "monthly_comparison": "O'tgan oy vs Bu oy",
+    "yearly_comparison": "O'tgan yil vs Bu yil",
+    "yesterday": "Kecha",
+    "today": "Bugun",
+    "last_week": "O'tgan hafta",
+    "this_week": "Bu hafta",
+    "last_month": "O'tgan oy",
+    "this_month": "Bu oy",
+    "last_year": "O'tgan yil",
+    "this_year": "Bu yil",
+    "turnover": "Aylanma foyda",
+    "turnover_legend": "Aylanma foyda",
+    "net_profit": "Sof foyda",
+    "sold_products": "Sotilgan mahsulotlar",
+    "orders": "Buyurtmalar soni",
+    "daily_suffix": "kechaga nisbatan",
+    "weekly_suffix": "o'tgan haftaga nisbatan",
+    "monthly_suffix": "o'tgan oyga nisbatan",
+    "yearly_suffix": "o'tgan yilga nisbatan",
+    "new": "Yangi",
+    "load_error": "Hisobot ma'lumotlarini yuklab bo'lmadi"
   },
   "selling_page": {
     "title": "Savdo nuqtasi",
@@ -72,11 +105,13 @@
     "total": "Umumiy",
     "complete_sale": "Savdoni yakunlash",
     "product_not_found": "Mahsulot topilmadi.",
+    "barcode_not_in_stock": "Bu shtrix-kodli mahsulot omborda topilmadi. Mahsulot omborga qo'shilganini tekshiring.",
     "out_of_stock": "Bu mahsulot omborda yo'q.",
     "insufficient_stock": "Omborda yetarli mahsulot yo'q.",
     "stock_left": "omborda qoldi",
     "sale_failed": "Savdoni yakunlab bo'lmadi.",
     "sale_completed": "Savdo muvaffaqiyatli yakunlandi.",
+    "sale_queued_offline": "Savdo saqlandi. Internet qaytganda avtomatik sinxronlanadi.",
     "remove": "O'chirish"
   },
   "selling_pos": {
@@ -136,6 +171,7 @@
   "offline_dialog": {
     "title": "Internet aloqasi yo'q",
     "subtitle": "Internetga ulanmaguningizcha o'zgarishlar sinxronlanmaydi.",
+    "offline_use": "Offline foydalanish",
     "retry": "Qayta urinish"
   },
   "logout_dialog": {
@@ -389,9 +425,11 @@
     "add_debt_title": "Yangi qarz qo'shish",
     "debt_product_name": "Mahsulot nomi",
     "debt_product_hint": "masalan: Coca Cola 1L",
+    "debt_quantity": "Miqdor",
     "debt_price": "Narxi (UZS)",
     "btn_add": "Qo'shish",
     "err_required": "Majburiy",
+    "err_invalid_quantity": "0 dan katta miqdor kiriting",
     "err_invalid_price": "To'g'ri narx kiriting",
     "debt_added": "Qarz muvaffaqiyatli qo'shildi"
   },

@@ -7,6 +7,7 @@ import 'firebase_options.dart';
 import 'screens/layout_page.dart';
 import 'login_page.dart';
 import 'services/connected_devices_service.dart';
+import 'services/local_session_service.dart';
 import 'widgets/update_layer.dart';
 
 Object? _firebaseInitError;
@@ -354,7 +355,9 @@ class _SplashScreenState extends State<SplashScreen>
 
     if (!mounted) return;
 
-    var isLoggedIn = FirebaseAuth.instance.currentUser != null;
+    final explicitlyLoggedOut = await LocalSessionService.isLoggedOut();
+    var isLoggedIn =
+        FirebaseAuth.instance.currentUser != null && !explicitlyLoggedOut;
     String? loginErrorKey;
     if (isLoggedIn) {
       try {
@@ -367,7 +370,6 @@ class _SplashScreenState extends State<SplashScreen>
         isLoggedIn = false;
         loginErrorKey = 'devices.check_failed';
       }
-      if (!isLoggedIn) await FirebaseAuth.instance.signOut();
     }
 
     if (!mounted) return;

@@ -6,7 +6,6 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:smart_store/screens/theme_controller.dart';
 import '../main.dart' show SmartStoreColors;
-import '../utils/notification_controller.dart';
 
 class StockProduct {
   final String id;
@@ -47,13 +46,6 @@ class StockProduct {
     }
 
     final num q = data['quantity'] as num? ?? 0;
-    String calculatedStatus = 'normal';
-    if (q == 0) {
-      calculatedStatus = 'tugagan';
-    } else if (q <= 10) {
-      calculatedStatus = 'kam';
-    }
-
     final String name =
         data['name']?.toString().trim() ??
         data['productName']?.toString().trim() ??
@@ -148,22 +140,22 @@ class _StockPageState extends State<StockPage> {
 
   // 16 preset colors for Category Creation Modal
   final List<Color> _presetColors = const [
-    Color(0xFF8B5CF6), // Purple
-    Color(0xFF3B82F6), // Blue
-    Color(0xFF10B981), // Green
-    Color(0xFFF59E0B), // Amber
-    Color(0xFFEF4444), // Red
-    Color(0xFFEC4899), // Pink
-    Color(0xFF06B6D4), // Cyan
-    Color(0xFF14B8A6), // Teal
-    Color(0xFF6366F1), // Indigo
-    Color(0xFF84CC16), // Lime
-    Color(0xFFF97316), // Orange
-    Color(0xFFD946EF), // Fuchsia
-    Color(0xFF64748B), // Slate
-    Color(0xFF0EA5E9), // Sky
-    Color(0xFF10B981), // Emerald
-    Color(0xFFF43F5E), // Rose
+    Color(0xFF8B5CF6),
+    Color(0xFF3B82F6),
+    Color(0xFF10B981),
+    Color(0xFFF59E0B),
+    Color(0xFFEF4444),
+    Color(0xFFEC4899),
+    Color(0xFF06B6D4),
+    Color(0xFF14B8A6),
+    Color(0xFF6366F1),
+    Color(0xFF84CC16),
+    Color(0xFFF97316),
+    Color(0xFFD946EF),
+    Color(0xFF64748B),
+    Color(0xFF0EA5E9),
+    Color(0xFF10B981),
+    Color(0xFFF43F5E),
   ];
 
   @override
@@ -213,52 +205,12 @@ class _StockPageState extends State<StockPage> {
             _allProducts = list;
             _isLoading = false;
           });
-          _checkStockNotifications(list);
         }
       },
       onError: (_) {
         if (mounted) setState(() => _isLoading = false);
       },
     );
-  }
-
-  void _checkStockNotifications(List<StockProduct> products) {
-    final alerts = <NotificationAlert>[];
-    for (final p in products) {
-      if (p.quantity == 0) {
-        alerts.add(
-          NotificationAlert(
-            id: 'stock_empty_${p.id}',
-            customerName: p.name,
-            remainingDebt: 0,
-            lastActivity: p.lastUpdate,
-            customText: _tr(
-              'stock_page.out_of_stock_alert',
-              '{0} mahsuloti tugadi (0 ta)!',
-              [p.name],
-            ),
-          ),
-        );
-      } else if (p.quantity <= 10) {
-        alerts.add(
-          NotificationAlert(
-            id: 'stock_low_${p.id}',
-            customerName: p.name,
-            remainingDebt: 0,
-            lastActivity: p.lastUpdate,
-            customText: _tr(
-              'stock_page.low_stock_alert',
-              '{0} mahsuloti zaxirasi kam qoldi ({1} ta)!',
-              [p.name, '${p.quantity}'],
-            ),
-          ),
-        );
-      }
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationController.instance.updateOverdueCustomers(alerts);
-    });
   }
 
   String _tr(String key, String fallback, [List<String>? args]) {

@@ -8,6 +8,7 @@
     "customers": "Клиенты",
     "finance": "Финансы",
     "analytics": "Аналитика",
+    "reports": "Отчёты",
     "settings": "Настройки",
     "update": "Обновить",
     "logout": "Выйти",
@@ -23,6 +24,8 @@
     "offline": "Не в сети",
     "support": "Служба поддержки",
     "notifications": "Уведомления",
+    "sync_sales": "Синхронизировать продажи",
+    "sync_retry": "Повторить синхронизацию",
     "update_available": "Доступно обновление"
   },
   "update": {
@@ -55,7 +58,37 @@
     "customers": "Клиенты",
     "finance": "Финансы",
     "analytics": "Аналитика",
+    "reports": "Отчёты",
     "settings": "Настройки"
+  },
+  "reports": {
+    "daily": "За день",
+    "weekly": "За неделю",
+    "monthly": "За месяц",
+    "yearly": "За год",
+    "daily_comparison": "Вчера vs Сегодня",
+    "weekly_comparison": "Прошлая неделя vs Эта неделя",
+    "monthly_comparison": "Прошлый месяц vs Этот месяц",
+    "yearly_comparison": "Прошлый год vs Этот год",
+    "yesterday": "Вчера",
+    "today": "Сегодня",
+    "last_week": "Прошлая неделя",
+    "this_week": "Эта неделя",
+    "last_month": "Прошлый месяц",
+    "this_month": "Этот месяц",
+    "last_year": "Прошлый год",
+    "this_year": "Этот год",
+    "turnover": "Выручка",
+    "turnover_legend": "Выручка",
+    "net_profit": "Чистая прибыль",
+    "sold_products": "Продано товаров",
+    "orders": "Заказы",
+    "daily_suffix": "к вчерашнему дню",
+    "weekly_suffix": "к прошлой неделе",
+    "monthly_suffix": "к прошлому месяцу",
+    "yearly_suffix": "к прошлому году",
+    "new": "Новый",
+    "load_error": "Не удалось загрузить данные отчёта"
   },
   "selling_page": {
     "title": "Точка продаж",
@@ -72,11 +105,13 @@
     "total": "Итого",
     "complete_sale": "Завершить продажу",
     "product_not_found": "Товар не найден.",
+    "barcode_not_in_stock": "Товар с этим штрихкодом не найден. Проверьте, добавлен ли он на склад.",
     "out_of_stock": "Этот товар отсутствует на складе.",
     "insufficient_stock": "Недостаточно товара на складе.",
     "stock_left": "осталось на складе",
     "sale_failed": "Не удалось завершить продажу.",
     "sale_completed": "Продажа успешно завершена.",
+    "sale_queued_offline": "Продажа сохранена. Она синхронизируется при подключении к интернету.",
     "remove": "Удалить"
   },
   "selling_pos": {
@@ -136,6 +171,7 @@
   "offline_dialog": {
     "title": "Нет подключения к интернету",
     "subtitle": "Изменения не синхронизируются, пока вы не подключитесь к интернету.",
+    "offline_use": "Работать офлайн",
     "retry": "Повторить"
   },
   "logout_dialog": {
@@ -389,9 +425,11 @@
     "add_debt_title": "Новый долг",
     "debt_product_name": "Название товара",
     "debt_product_hint": "например: Coca Cola 1L",
+    "debt_quantity": "Количество",
     "debt_price": "Цена (UZS)",
     "btn_add": "Добавить",
     "err_required": "Обязательно",
+    "err_invalid_quantity": "Введите количество больше 0",
     "err_invalid_price": "Введите корректную цену",
     "debt_added": "Долг успешно добавлен"
   },

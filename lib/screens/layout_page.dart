@@ -14,6 +14,8 @@ import '../main.dart' show SmartStoreColors;
 import '../utils/notification_controller.dart';
 import '../utils/tenant_firestore.dart';
 import '../services/connected_devices_service.dart';
+import '../services/local_session_service.dart';
+import '../services/offline_sales_queue.dart';
 import '../services/update_service.dart';
 import '../widgets/update_dialog.dart';
 import '../widgets/update_layer.dart';
@@ -23,6 +25,7 @@ import 'adding_page.dart';
 import 'customers_page.dart';
 import 'finance_page.dart';
 import 'analytics_page.dart';
+import 'reports_page.dart';
 import 'settings_page.dart';
 
 // ───────────────────────────────────────────────────────────────
@@ -43,6 +46,7 @@ enum _Section {
   customers,
   finance,
   analytics,
+  reports,
   settings,
 }
 
@@ -51,6 +55,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   bool _isSidebarOpen = true;
   bool _isOnline = true;
   bool _offlineDialogShowing = false;
+  bool _offlineModeEnabled = false;
+  bool _hasStartedInitialSync = false;
   bool _isUserBlocked = false;
   bool _isRedirectingToLogin = false;
   bool _isHandlingBlockedAccount = false;
@@ -59,6 +65,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>?
   _customerStatusSubscription;
   StreamSubscription<User?>? _authStateSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _stockNotificationSubscription;
   final _connectedDevicesService = ConnectedDevicesService();
 
   late AnimationController _sidebarController;
@@ -106,6 +114,17 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
       if (!mounted) return;
     }
     if (_accountStatusSubscription != null) return;
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUid != null) {
+      unawaited(() async {
+        try {
+          await OfflineSalesQueue.instance.refreshPendingCount(currentUid);
+        } catch (error) {
+          debugPrint('Unable to load pending sale count: $error');
+        }
+      }());
+    }
+    _watchStockNotifications();
 
     _accountStatusSubscription = TenantFirestore.userDocument
         .snapshots()
@@ -159,6 +178,48 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
         });
   }
 
+  void _watchStockNotifications() {
+    if (_stockNotificationSubscription != null) return;
+    _stockNotificationSubscription = TenantFirestore.products
+        .snapshots()
+        .listen((snapshot) {
+          final alerts = <NotificationAlert>[];
+          for (final product in snapshot.docs.map(StockProduct.fromFirestore)) {
+            if (product.quantity == 0) {
+              alerts.add(
+                NotificationAlert(
+                  id: 'stock_empty_${product.id}',
+                  customerName: product.name,
+                  remainingDebt: 0,
+                  lastActivity: product.lastUpdate,
+                  customText: _tr(
+                    'stock_page.out_of_stock_alert',
+                    '{0} mahsuloti tugadi (0 ta)!',
+                  ).replaceFirst('{0}', product.name),
+                ),
+              );
+            } else if (product.quantity <= 10) {
+              alerts.add(
+                NotificationAlert(
+                  id: 'stock_low_${product.id}',
+                  customerName: product.name,
+                  remainingDebt: 0,
+                  lastActivity: product.lastUpdate,
+                  customText:
+                      _tr(
+                            'stock_page.low_stock_alert',
+                            '{0} mahsuloti zaxirasi kam qoldi ({1} ta)!',
+                          )
+                          .replaceFirst('{0}', product.name)
+                          .replaceFirst('{1}', '${product.quantity}'),
+                ),
+              );
+            }
+          }
+          NotificationController.instance.updateStockAlerts(alerts);
+        });
+  }
+
   Future<void> _handleBlockedAccount() async {
     if (_isHandlingBlockedAccount || !mounted) return;
     _isHandlingBlockedAccount = true;
@@ -167,7 +228,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
   Future<void> _returnToLoginFromBlockedAccount() async {
     if (!mounted) return;
-    await _releaseDeviceAndSignOut();
+    await _releaseDeviceForLogout();
     if (!mounted) return;
     Navigator.of(
       context,
@@ -202,6 +263,15 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     await FirebaseAuth.instance.signOut();
   }
 
+  Future<void> _releaseDeviceForLogout() async {
+    try {
+      await _connectedDevicesService.releaseCurrentDevice();
+    } catch (error) {
+      debugPrint('Unable to release connected-device slot: $error');
+    }
+    await LocalSessionService.markLoggedOut();
+  }
+
   void _startConnectivityCheck() {
     _checkConnectivity();
     _connectivityTimer = Timer.periodic(
@@ -229,15 +299,31 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
       online = false;
     }
 
-    if (online == _isOnline) return;
-    setState(() => _isOnline = online);
+    if (!mounted) return;
+    final wasOffline = !_isOnline || _offlineModeEnabled;
+    OfflineSalesQueue.instance.setConnectivityStatus(online);
 
-    if (!online) {
-      _showOfflineReminder();
-    } else if (_offlineDialogShowing && mounted) {
-      Navigator.of(context, rootNavigator: true).pop();
-      _offlineDialogShowing = false;
+    if (online) {
+      if (!_isOnline || _offlineModeEnabled) {
+        setState(() {
+          _isOnline = true;
+          _offlineModeEnabled = false;
+        });
+      }
+      OfflineSalesQueue.instance.setOfflineModeEnabled(false);
+      if (_offlineDialogShowing) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _offlineDialogShowing = false;
+      }
+      if (wasOffline || !_hasStartedInitialSync) {
+        _hasStartedInitialSync = true;
+        unawaited(OfflineSalesQueue.instance.syncPendingSales());
+      }
+      return;
     }
+
+    if (_isOnline) setState(() => _isOnline = false);
+    if (!_offlineModeEnabled) _showOfflineReminder();
   }
 
   void _showOfflineReminder() {
@@ -253,8 +339,17 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
           await _checkConnectivity();
           if (!_isOnline) _showOfflineReminder();
         },
+        onOfflineUse: _enableOfflineMode,
       ),
     ).then((_) => _offlineDialogShowing = false);
+  }
+
+  void _enableOfflineMode() {
+    if (!mounted) return;
+    setState(() => _offlineModeEnabled = true);
+    OfflineSalesQueue.instance.setOfflineModeEnabled(true);
+    Navigator.of(context, rootNavigator: true).pop();
+    _offlineDialogShowing = false;
   }
 
   void toggleSidebar() {
@@ -304,7 +399,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           return;
                         }
 
-                        await _releaseDeviceAndSignOut();
+                        await _releaseDeviceForLogout();
                         if (navigator.mounted) {
                           navigator.pushNamedAndRemoveUntil(
                             '/login',
@@ -844,25 +939,18 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                         ),
                       ),
                       if (alerts.isNotEmpty)
-                        TextButton.icon(
+                        IconButton(
+                          tooltip: _tr(
+                            'notifications.mark_all_read',
+                            'Mark all as read',
+                          ),
                           onPressed: () {
                             NotificationController.instance.markAllAsRead();
                           },
                           icon: const Icon(
                             Icons.done_all_rounded,
-                            size: 16,
+                            size: 20,
                             color: Color(0xFF0284C7),
-                          ),
-                          label: Text(
-                            _tr(
-                              'notifications.mark_all_read',
-                              'All mark as read',
-                            ),
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0284C7),
-                            ),
                           ),
                         ),
                       const SizedBox(width: 8),
@@ -1063,6 +1151,7 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
     _connectivityTimer?.cancel();
     _accountStatusSubscription?.cancel();
     _customerStatusSubscription?.cancel();
+    _stockNotificationSubscription?.cancel();
     _authStateSubscription?.cancel();
     _sidebarController.dispose();
     ThemeController.instance.removeListener(_onThemeChanged);
@@ -1129,118 +1218,136 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
 
                           // ── Navigation Items ──
                           Expanded(
-                            child: ListView(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 8,
+                            child: ScrollConfiguration(
+                              behavior: ScrollConfiguration.of(
+                                context,
+                              ).copyWith(scrollbars: false),
+                              child: ListView(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 8,
+                                ),
+                                children: [
+                                  if (renderExpanded)
+                                    _SidebarGroup(
+                                      label: 'nav.group_main'.tr(),
+                                      isDark: isDark,
+                                      dividerColor: dividerColor,
+                                    ),
+                                  _SidebarTile(
+                                    icon: Icons.dashboard_rounded,
+                                    label: 'nav.home'.tr(context: context),
+                                    active: _selectedSection == _Section.home,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.home),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.sell_rounded,
+                                    label: 'nav.selling'.tr(context: context),
+                                    active:
+                                        _selectedSection == _Section.selling,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.selling),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.add_box_rounded,
+                                    label: 'nav.adding'.tr(context: context),
+                                    active: _selectedSection == _Section.adding,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.adding),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.inventory_2_rounded,
+                                    label: 'nav.stock'.tr(context: context),
+                                    active: _selectedSection == _Section.stock,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.stock),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.people_rounded,
+                                    label: 'nav.customers'.tr(context: context),
+                                    active:
+                                        _selectedSection == _Section.customers,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.customers),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.attach_money_rounded,
+                                    label: 'nav.finance'.tr(),
+                                    active:
+                                        _selectedSection == _Section.finance,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.finance),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.show_chart_rounded,
+                                    label: 'nav.analytics'.tr(),
+                                    active:
+                                        _selectedSection == _Section.analytics,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.analytics),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.bar_chart_rounded,
+                                    label: 'nav.reports'.tr(),
+                                    active:
+                                        _selectedSection == _Section.reports,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.reports),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _SidebarDivider(
+                                    isDark: isDark,
+                                    dividerColor: dividerColor,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  if (renderExpanded)
+                                    _SidebarGroup(
+                                      label: 'nav.group_system'.tr(),
+                                      isDark: isDark,
+                                      dividerColor: dividerColor,
+                                    ),
+                                  _SidebarTile(
+                                    icon: Icons.settings_rounded,
+                                    label: 'nav.settings'.tr(),
+                                    active:
+                                        _selectedSection == _Section.settings,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () =>
+                                        navigateToSection(_Section.settings),
+                                  ),
+                                  _SidebarTile(
+                                    icon: Icons.system_update_alt_rounded,
+                                    label: 'nav.update'.tr(context: context),
+                                    active: false,
+                                    isDark: isDark,
+                                    isExpanded: renderExpanded,
+                                    onTap: () => showUpdateDialog(
+                                      context: context,
+                                      service: updateService,
+                                      currentVersion:
+                                          UpdateService.currentAppVersion,
+                                    ),
+                                  ),
+                                ],
                               ),
-                              children: [
-                                if (renderExpanded)
-                                  _SidebarGroup(
-                                    label: 'nav.group_main'.tr(),
-                                    isDark: isDark,
-                                    dividerColor: dividerColor,
-                                  ),
-                                _SidebarTile(
-                                  icon: Icons.dashboard_rounded,
-                                  label: 'nav.home'.tr(context: context),
-                                  active: _selectedSection == _Section.home,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () => navigateToSection(_Section.home),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.sell_rounded,
-                                  label: 'nav.selling'.tr(context: context),
-                                  active: _selectedSection == _Section.selling,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.selling),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.add_box_rounded,
-                                  label: 'nav.adding'.tr(context: context),
-                                  active: _selectedSection == _Section.adding,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.adding),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.inventory_2_rounded,
-                                  label: 'nav.stock'.tr(context: context),
-                                  active: _selectedSection == _Section.stock,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.stock),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.people_rounded,
-                                  label: 'nav.customers'.tr(context: context),
-                                  active:
-                                      _selectedSection == _Section.customers,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.customers),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.attach_money_rounded,
-                                  label: 'nav.finance'.tr(),
-                                  active: _selectedSection == _Section.finance,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.finance),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.analytics_rounded,
-                                  label: 'nav.analytics'.tr(),
-                                  active:
-                                      _selectedSection == _Section.analytics,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.analytics),
-                                ),
-                                const SizedBox(height: 8),
-                                // ── Divider between Main and System groups ──
-                                _SidebarDivider(
-                                  isDark: isDark,
-                                  dividerColor: dividerColor,
-                                ),
-                                const SizedBox(height: 8),
-                                if (renderExpanded)
-                                  _SidebarGroup(
-                                    label: 'nav.group_system'.tr(),
-                                    isDark: isDark,
-                                    dividerColor: dividerColor,
-                                  ),
-                                _SidebarTile(
-                                  icon: Icons.settings_rounded,
-                                  label: 'nav.settings'.tr(),
-                                  active: _selectedSection == _Section.settings,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () =>
-                                      navigateToSection(_Section.settings),
-                                ),
-                                _SidebarTile(
-                                  icon: Icons.system_update_alt_rounded,
-                                  label: 'nav.update'.tr(context: context),
-                                  active: false,
-                                  isDark: isDark,
-                                  isExpanded: renderExpanded,
-                                  onTap: () => showUpdateDialog(
-                                    context: context,
-                                    service: updateService,
-                                    currentVersion:
-                                        UpdateService.currentAppVersion,
-                                  ),
-                                ),
-                              ],
                             ),
                           ),
 
@@ -1476,6 +1583,88 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
                           ),
                           const SizedBox(width: 8),
 
+                          ListenableBuilder(
+                            listenable: OfflineSalesQueue.instance,
+                            builder: (context, _) {
+                              final queue = OfflineSalesQueue.instance;
+                              final syncTooltip = _tr(
+                                queue.lastSyncError == null
+                                    ? 'topbar.sync_sales'
+                                    : 'topbar.sync_retry',
+                                queue.lastSyncError == null
+                                    ? 'Sync pending sales'
+                                    : 'Retry pending sync',
+                              );
+                              return SizedBox(
+                                width: 38,
+                                height: 38,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    IconButton(
+                                      tooltip: syncTooltip,
+                                      padding: EdgeInsets.zero,
+                                      onPressed:
+                                          queue.isSyncing ||
+                                              !queue.isOnline ||
+                                              queue.isOfflineModeEnabled
+                                          ? null
+                                          : () => unawaited(
+                                              queue.syncPendingSales(),
+                                            ),
+                                      icon: queue.isSyncing
+                                          ? const SizedBox(
+                                              width: 17,
+                                              height: 17,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.sync_rounded,
+                                              size: 20,
+                                              color: queue.lastSyncError != null
+                                                  ? SmartStoreColors.danger
+                                                  : null,
+                                            ),
+                                    ),
+                                    if (queue.pendingCount > 0)
+                                      Positioned(
+                                        right: -2,
+                                        top: -2,
+                                        child: Container(
+                                          constraints: const BoxConstraints(
+                                            minWidth: 16,
+                                            minHeight: 16,
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 4,
+                                            vertical: 1,
+                                          ),
+                                          decoration: const BoxDecoration(
+                                            color: Color(0xFFEF4444),
+                                            shape: BoxShape.circle,
+                                          ),
+                                          alignment: Alignment.center,
+                                          child: Text(
+                                            queue.pendingCount > 99
+                                                ? '99+'
+                                                : '${queue.pendingCount}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+
                           // ── Online Status Badge ──
                           AnimatedContainer(
                             duration: const Duration(milliseconds: 300),
@@ -1565,6 +1754,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
         return 'titles.finance'.tr(context: context);
       case _Section.analytics:
         return 'titles.analytics'.tr(context: context);
+      case _Section.reports:
+        return 'titles.reports'.tr(context: context);
       case _Section.settings:
         return 'titles.settings'.tr(context: context);
     }
@@ -1586,6 +1777,8 @@ class _LayoutPageState extends State<LayoutPage> with TickerProviderStateMixin {
         return const FinancePage();
       case _Section.analytics:
         return const AnalyticsPage();
+      case _Section.reports:
+        return const ReportsPage();
       case _Section.settings:
         return const SettingsPage();
     }
@@ -2389,7 +2582,12 @@ class _ThemeModeSwitch extends StatelessWidget {
 // ── Offline Reminder Dialog ──
 class _OfflineReminderDialog extends StatelessWidget {
   final VoidCallback onRetry;
-  const _OfflineReminderDialog({required this.onRetry});
+  final VoidCallback onOfflineUse;
+
+  const _OfflineReminderDialog({
+    required this.onRetry,
+    required this.onOfflineUse,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -2456,31 +2654,53 @@ class _OfflineReminderDialog extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 22),
-            SizedBox(
-              width: double.infinity,
-              height: 44,
-              child: ElevatedButton.icon(
-                onPressed: onRetry,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: SmartStoreColors.primary,
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onOfflineUse,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: SmartStoreColors.primary,
+                      side: const BorderSide(color: SmartStoreColors.primary),
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(Icons.offline_bolt_rounded, size: 18),
+                    label: Text(
+                      'offline_dialog.offline_use'.tr(),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
-                icon: const Icon(
-                  Icons.refresh_rounded,
-                  color: Colors.white,
-                  size: 18,
-                ),
-                label: Text(
-                  'offline_dialog.retry'.tr(),
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    onPressed: onRetry,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: SmartStoreColors.primary,
+                      elevation: 0,
+                      minimumSize: const Size.fromHeight(44),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    icon: const Icon(
+                      Icons.refresh_rounded,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    label: Text(
+                      'offline_dialog.retry'.tr(),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+              ],
             ),
           ],
         ),

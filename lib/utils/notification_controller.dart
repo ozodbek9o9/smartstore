@@ -20,16 +20,36 @@ class NotificationController extends ChangeNotifier {
   static final NotificationController instance = NotificationController._();
   NotificationController._();
 
-  List<NotificationAlert> _alerts = [];
+  List<NotificationAlert> _customerAlerts = [];
+  List<NotificationAlert> _stockAlerts = [];
   bool _markedAllAsRead = false;
 
-  List<NotificationAlert> get alerts => _alerts;
-  int get unreadCount => _markedAllAsRead ? 0 : _alerts.length;
+  List<NotificationAlert> get alerts => [..._customerAlerts, ..._stockAlerts];
+  int get unreadCount => _markedAllAsRead ? 0 : alerts.length;
 
-  void updateOverdueCustomers(List<NotificationAlert> newAlerts) {
+  void updateCustomerAlerts(List<NotificationAlert> newAlerts) {
+    final updated = _updateSourceAlerts(_customerAlerts, newAlerts);
+    if (identical(updated, _customerAlerts)) return;
+    _customerAlerts = updated;
+    _onAlertsChanged();
+  }
+
+  void updateStockAlerts(List<NotificationAlert> newAlerts) {
+    final updated = _updateSourceAlerts(_stockAlerts, newAlerts);
+    if (identical(updated, _stockAlerts)) return;
+    _stockAlerts = updated;
+    _onAlertsChanged();
+  }
+
+  List<NotificationAlert> _updateSourceAlerts(
+    List<NotificationAlert> currentAlerts,
+    List<NotificationAlert> newAlerts,
+  ) {
     final normalized = <NotificationAlert>[];
     for (final alert in newAlerts) {
-      final existing = _alerts.where((item) => item.id == alert.id).firstOrNull;
+      final existing = currentAlerts
+          .where((item) => item.id == alert.id)
+          .firstOrNull;
       if (existing == null) {
         normalized.add(alert);
       } else if (existing.customText != alert.customText ||
@@ -40,9 +60,12 @@ class NotificationController extends ChangeNotifier {
       }
     }
 
-    if (_isSameAlerts(_alerts, normalized)) return;
-    _alerts = normalized;
-    if (_markedAllAsRead && _alerts.isNotEmpty) {
+    if (_isSameAlerts(currentAlerts, normalized)) return currentAlerts;
+    return normalized;
+  }
+
+  void _onAlertsChanged() {
+    if (_markedAllAsRead && alerts.isNotEmpty) {
       _markedAllAsRead = false;
     }
     notifyListeners();

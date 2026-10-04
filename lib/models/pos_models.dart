@@ -77,6 +77,7 @@ class CustomerDebt {
   final String id;
   final String productName;
   final num? quantity;
+  final String? quantityUnit;
   final num amount;
   final DateTime purchaseDate;
   final String? productId;
@@ -85,6 +86,7 @@ class CustomerDebt {
     required this.id,
     required this.productName,
     required this.quantity,
+    this.quantityUnit,
     required this.amount,
     required this.purchaseDate,
     this.productId,
@@ -103,6 +105,7 @@ class CustomerDebt {
       id: doc.id,
       productName: data['productName'] ?? 'Unknown',
       quantity: data['quantity'] as num?,
+      quantityUnit: data['quantityUnit'] as String?,
       amount: data['amount'] ?? 0,
       purchaseDate: parseDate(data['purchaseDate'] ?? data['timestamp']),
       productId: data['productId'],
@@ -110,10 +113,68 @@ class CustomerDebt {
   }
 }
 
+class CustomerDebtQuantity {
+  static const kilograms = 'KG';
+  static const grams = 'Gr';
+  static const num gramsPerKilogram = 1000;
+
+  static num convert(
+    num quantity, {
+    required String fromUnit,
+    required String toUnit,
+  }) {
+    if (fromUnit == toUnit) return quantity;
+    if (fromUnit == kilograms && toUnit == grams) {
+      return quantity * gramsPerKilogram;
+    }
+    if (fromUnit == grams && toUnit == kilograms) {
+      return quantity / gramsPerKilogram;
+    }
+    throw ArgumentError('Unsupported quantity unit conversion.');
+  }
+
+  static ({num value, String unit}) normalize(
+    num quantity, {
+    required String unit,
+  }) {
+    if (!quantity.isFinite || quantity <= 0) {
+      throw ArgumentError.value(quantity, 'quantity');
+    }
+    final kilograms = unit == CustomerDebtQuantity.kilograms
+        ? quantity
+        : convert(
+            quantity,
+            fromUnit: unit,
+            toUnit: CustomerDebtQuantity.kilograms,
+          );
+    if (kilograms < 1) {
+      return (
+        value: convert(
+          kilograms,
+          fromUnit: CustomerDebtQuantity.kilograms,
+          toUnit: CustomerDebtQuantity.grams,
+        ),
+        unit: grams,
+      );
+    }
+    return (value: kilograms, unit: CustomerDebtQuantity.kilograms);
+  }
+
+  static String format(num? quantity, String? unit) {
+    if (quantity == null) return '-';
+    final value = quantity.toString();
+    final formatted = value.endsWith('.0')
+        ? value.substring(0, value.length - 2)
+        : value;
+    return unit == null ? formatted : '$formatted $unit';
+  }
+}
+
 class CustomerPayment {
   final String id;
   final String productName;
   final num? quantity;
+  final String? quantityUnit;
   final num amount;
   final DateTime paymentDate;
   final bool isFullPayment;
@@ -122,6 +183,7 @@ class CustomerPayment {
     required this.id,
     required this.productName,
     required this.quantity,
+    this.quantityUnit,
     required this.amount,
     required this.paymentDate,
     this.isFullPayment = false,
@@ -140,6 +202,7 @@ class CustomerPayment {
       id: doc.id,
       productName: data['productName'] ?? '',
       quantity: data['quantity'] as num?,
+      quantityUnit: data['quantityUnit'] as String?,
       amount: data['amount'] ?? 0,
       paymentDate: parseDate(data['paymentDate'] ?? data['timestamp']),
       isFullPayment: data['isFullPayment'] ?? false,

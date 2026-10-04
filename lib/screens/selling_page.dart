@@ -9,17 +9,8 @@ import 'package:flutter/material.dart';
 
 import 'theme_controller.dart';
 import '../models/pos_models.dart';
+import '../services/offline_sales_queue.dart';
 import '../services/pos_service.dart';
-
-class SalePaymentSelection {
-  const SalePaymentSelection({
-    required this.receiptNumber,
-    required this.paymentType,
-  });
-
-  final String receiptNumber;
-  final String paymentType;
-}
 
 class SellingPage extends StatefulWidget {
   const SellingPage({super.key});
@@ -49,6 +40,7 @@ class _SellingPageState extends State<SellingPage> {
 
   // ── Local barcode cache ──
   final Map<String, PosProduct> _barcodeCache = {};
+  final Map<String, PosProduct> _serverBarcodeCache = {};
   bool _isBarcodeCacheLoaded = false;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _productsSub;
 
@@ -67,6 +59,7 @@ class _SellingPageState extends State<SellingPage> {
     _cartService = PosCartService();
 
     _cartService.addListener(_onCartChanged);
+    OfflineSalesQueue.instance.addListener(_onPendingSalesChanged);
     _subscribeToCustomers();
     _loadBarcodeCache();
     unawaited(_initializeFirebaseCart());
@@ -81,6 +74,7 @@ class _SellingPageState extends State<SellingPage> {
     _cartSyncDebounce?.cancel();
     _barcodeResetTimer?.cancel();
     _productsSub?.cancel();
+    OfflineSalesQueue.instance.removeListener(_onPendingSalesChanged);
     ++_cartWriteGeneration;
     _customersSub?.cancel();
     _customerController.dispose();
@@ -122,14 +116,48 @@ class _SellingPageState extends State<SellingPage> {
         } catch (_) {}
       }
 
-      if (mounted) {
-        setState(() {
-          _barcodeCache
-            ..clear()
-            ..addAll(cache);
-          _isBarcodeCacheLoaded = true;
-        });
-      }
+      _serverBarcodeCache
+        ..clear()
+        ..addAll(cache);
+      unawaited(_refreshBarcodeCache());
+    });
+  }
+
+  void _onPendingSalesChanged() {
+    unawaited(_refreshBarcodeCache());
+  }
+
+  Future<void> _refreshBarcodeCache() async {
+    Map<String, int> pendingQuantities = const {};
+    try {
+      pendingQuantities = await OfflineSalesQueue.instance.pendingQuantities(
+        TenantFirestore.uid,
+      );
+    } catch (_) {}
+    if (!mounted) return;
+
+    final availableProducts = <String, PosProduct>{};
+    for (final entry in _serverBarcodeCache.entries) {
+      final product = entry.value;
+      final reserved = pendingQuantities[product.id] ?? 0;
+      final available = (product.quantity - reserved).clamp(0, 0x7fffffff);
+      availableProducts[entry.key] = PosProduct(
+        id: product.id,
+        productName: product.productName,
+        barcode: product.barcode,
+        category: product.category,
+        quantity: available,
+        originalPrice: product.originalPrice,
+        sellingPrice: product.sellingPrice,
+        profit: product.profit,
+        imageUrl: product.imageUrl,
+      );
+    }
+    setState(() {
+      _barcodeCache
+        ..clear()
+        ..addAll(availableProducts);
+      _isBarcodeCacheLoaded = true;
     });
   }
 
@@ -141,9 +169,7 @@ class _SellingPageState extends State<SellingPage> {
     if (!mounted) return;
     final document = TenantFirestore.sellingCarts.doc('active');
     _cartDocument = document;
-    try {
-      await document.delete();
-    } catch (_) {}
+    unawaited(document.delete().catchError((_) {}));
     if (mounted) setState(() => _isCartReady = true);
   }
 
@@ -432,17 +458,10 @@ class _SellingPageState extends State<SellingPage> {
       }
     }
 
-    final document = TenantFirestore.settings.doc('receipt');
-    final receiptNumber = await _reserveSaleNumber(document);
-    if (!mounted) return;
-    final payment = SalePaymentSelection(
-      receiptNumber: receiptNumber,
-      paymentType: 'cash',
-    );
-    await _completeSale(payment);
+    await _completeSale('cash');
   }
 
-  Future<void> _completeSale(SalePaymentSelection sale) async {
+  Future<void> _completeSale(String paymentType) async {
     final items = List<CartItem>.from(_cartService.items);
     final cartDocument = _cartDocument;
     if (items.isEmpty || _isProcessingSale || cartDocument == null) return;
@@ -475,13 +494,10 @@ class _SellingPageState extends State<SellingPage> {
 
     var saleSucceeded = false;
     try {
-      await _cartWriteQueue;
-
-      final total = _cartService.subtotal;
-      final salesDocument = TenantFirestore.sales.doc();
-      final productReferences = items
-          .map((item) => TenantFirestore.products.doc(item.product.id))
-          .toList(growable: false);
+      final queue = OfflineSalesQueue.instance;
+      if (queue.isOnline && !queue.isOfflineModeEnabled) {
+        await _cartWriteQueue;
+      }
 
       String username = 'Unknown';
       try {
@@ -489,150 +505,37 @@ class _SellingPageState extends State<SellingPage> {
         username = (profile.data()?['username'] ?? 'Unknown').toString();
       } catch (_) {}
 
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final productSnapshots = await Future.wait(
-          productReferences.map(transaction.get),
-        );
-        final customerReference = _isDebtSale
-            ? TenantFirestore.customers.doc(_selectedCustomer!.id)
-            : null;
-        final customerSnapshot = customerReference == null
-            ? null
-            : await transaction.get(customerReference);
+      final ownerUid = TenantFirestore.uid;
+      final queuedSale = QueuedSale(
+        id: TenantFirestore.sales.doc().id,
+        ownerUid: ownerUid,
+        createdAt: DateTime.now(),
+        items: items
+            .map(
+              (item) => SaleSyncItem(
+                productId: item.product.id,
+                productName: item.product.productName,
+                category: item.product.category,
+                quantity: item.quantity,
+                originalPrice: item.product.originalPrice,
+                sellingPrice: item.product.sellingPrice,
+              ),
+            )
+            .toList(growable: false),
+        paymentType: paymentType,
+        isDebtSale: _isDebtSale,
+        username: username,
+        customerId: _isDebtSale ? _selectedCustomer!.id : null,
+        customerName: _isDebtSale ? _selectedCustomer!.fullName : null,
+      );
 
-        for (var index = 0; index < items.length; index++) {
-          final item = items[index];
-          final productSnapshot = productSnapshots[index];
-          final available =
-              (productSnapshot.data()?['quantity'] as num?)?.toInt() ?? 0;
-          if (!productSnapshot.exists || available < item.quantity) {
-            throw ProductStockException(
-              'insufficient_stock',
-              item.product.productName,
-            );
-          }
-        }
-        if (customerSnapshot != null && !customerSnapshot.exists) {
-          throw StateError('The selected customer no longer exists.');
-        }
-
-        for (var index = 0; index < items.length; index++) {
-          final item = items[index];
-          final available =
-              (productSnapshots[index].data()?['quantity'] as num?)?.toInt() ??
-              0;
-          final newQty = available - item.quantity;
-          // Determine new status based on new quantity
-          String newStatus = 'normal';
-          if (newQty <= 0) {
-            newStatus = 'tugagan';
-          } else if (newQty <= 10) {
-            newStatus = 'kam';
-          }
-          transaction.update(productReferences[index], {
-            'quantity': newQty,
-            'status': newStatus,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-        }
-        if (customerReference != null) {
-          transaction.update(customerReference, {
-            'totalDebt': FieldValue.increment(total),
-            'remainingDebt': FieldValue.increment(total),
-            'lastActivity': FieldValue.serverTimestamp(),
-          });
-
-          for (final item in items) {
-            final debtDoc = TenantFirestore.customerDebts(
-              _selectedCustomer!.id,
-            ).doc();
-            transaction.set(debtDoc, {
-              'productId': item.product.id,
-              'productName': item.product.productName,
-              'quantity': item.quantity,
-              'amount': item.lineTotal.toDouble(),
-              'purchaseDate': FieldValue.serverTimestamp(),
-            });
-          }
-        }
-        transaction.set(salesDocument, {
-          'items': items.map((item) {
-            final originalPrice = item.product.originalPrice.toDouble();
-            final sellingPrice = item.product.sellingPrice.toDouble();
-            final quantity = item.quantity;
-            final profitPerUnit = sellingPrice - originalPrice;
-            final totalProfit = profitPerUnit * quantity;
-            return {
-              'productId': item.product.id,
-              'productName': item.product.productName,
-              'category': item.product.category,
-              'quantity': quantity,
-              'originalPrice': originalPrice,
-              'price': sellingPrice,
-              'profitPerUnit': profitPerUnit,
-              'totalProfit': totalProfit,
-              'total': item.lineTotal.toDouble(),
-              'originalTotal': (originalPrice * quantity),
-            };
-          }).toList(),
-          'subtotal': total.toDouble(),
-          'discount': 0,
-          'total': total.toDouble(),
-          'totalAmount': total.toDouble(),
-          'originalCostTotal': items
-              .fold<num>(
-                0,
-                (sum, item) => sum + item.product.originalPrice * item.quantity,
-              )
-              .toDouble(),
-          'profitTotal': items
-              .fold<num>(
-                0,
-                (sum, item) =>
-                    sum +
-                    (item.product.sellingPrice - item.product.originalPrice) *
-                        item.quantity,
-              )
-              .toDouble(),
-          'receiptNumber': sale.receiptNumber,
-          'paymentType': sale.paymentType,
-          'isDebtSale': _isDebtSale,
-          'customerId': _isDebtSale ? _selectedCustomer!.id : null,
-          'customerName': _isDebtSale ? _selectedCustomer!.fullName : null,
-          'user': username,
-          'timestamp': FieldValue.serverTimestamp(),
-          'status': _isDebtSale ? 'debt' : 'completed',
-        });
-
-        for (final item in items) {
-          final entryRef = TenantFirestore.inventoryEntries.doc();
-          final originalPrice = item.product.originalPrice.toDouble();
-          final sellingPrice = item.product.sellingPrice.toDouble();
-          final quantity = item.quantity;
-          transaction.set(entryRef, {
-            'type': 'outgoing',
-            'saleId': salesDocument.id,
-            'productId': item.product.id,
-            'productName': item.product.productName,
-            'category': item.product.category,
-            'quantity': quantity,
-            'originalPrice': originalPrice,
-            'sellingPrice': sellingPrice,
-            'totalCostValue': (originalPrice * quantity),
-            'totalSaleValue': (sellingPrice * quantity),
-            'profitPerUnit': (sellingPrice - originalPrice),
-            'totalProfit': ((sellingPrice - originalPrice) * quantity),
-            'user': username,
-            'paymentType': sale.paymentType,
-            'isDebtSale': _isDebtSale,
-            'customerId': _isDebtSale ? _selectedCustomer!.id : null,
-            'customerName': _isDebtSale ? _selectedCustomer!.fullName : null,
-            'timestamp': FieldValue.serverTimestamp(),
-          });
-        }
-
-        transaction.delete(cartDocument);
-      });
+      await queue.enqueue(queuedSale);
+      await _refreshBarcodeCache();
+      if (queue.isOnline && !queue.isOfflineModeEnabled) {
+        await queue.syncPendingSales();
+      }
+      final isStillPending = await queue.containsSale(ownerUid, queuedSale.id);
+      unawaited(cartDocument.delete().catchError((_) {}));
       saleSucceeded = true;
 
       _cartService.clearCart();
@@ -645,14 +548,9 @@ class _SellingPageState extends State<SellingPage> {
       }
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
-      _showSuccess(_t('sale_completed'));
-    } on ProductStockException catch (error) {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        _showError(
-          _t('insufficient_stock_with_name', args: [error.productName]),
-        );
-      }
+      _showSuccess(
+        isStillPending ? _t('sale_queued_offline') : _t('sale_completed'),
+      );
     } catch (_) {
       if (mounted) {
         Navigator.of(context, rootNavigator: true).pop();
@@ -766,6 +664,7 @@ class _SellingPageState extends State<SellingPage> {
         if (!mounted) break;
         if (product == null) {
           SystemSound.play(SystemSoundType.alert);
+          _showError(_t('barcode_not_in_stock'));
           continue;
         }
         _addToCart(product);
@@ -1739,32 +1638,4 @@ class _PosCustomer {
       fullName: (data['fullName'] ?? data['name'] ?? '').toString(),
     );
   }
-}
-
-Future<String> _reserveSaleNumber(
-  DocumentReference<Map<String, dynamic>> document,
-) {
-  return FirebaseFirestore.instance.runTransaction((transaction) async {
-    final snapshot = await transaction.get(document);
-    final rawNumber = snapshot.data()?['lastReceiptNumber'];
-    final currentNumber = rawNumber is num
-        ? rawNumber.toInt()
-        : int.tryParse(rawNumber?.toString() ?? '') ?? 0;
-    final nextNumber = currentNumber + 1;
-    transaction.set(document, {
-      'lastReceiptNumber': nextNumber,
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-    return nextNumber.toString().padLeft(6, '0');
-  });
-}
-
-class ProductStockException implements Exception {
-  final String code;
-  final String productName;
-
-  ProductStockException(this.code, this.productName);
-
-  @override
-  String toString() => 'ProductStockException: $code - $productName';
 }

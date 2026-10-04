@@ -55,15 +55,18 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
         final customerDoc = await transaction.get(customerRef);
         if (!customerDoc.exists) throw Exception('Customer not found');
 
-        final currentRemainingDebt = customerDoc.data()?['remainingDebt'] ?? 0;
-        final currentPaidDebt = customerDoc.data()?['paidDebt'] ?? 0;
+        final customerData = customerDoc.data() ?? <String, dynamic>{};
+        final currentTotalDebt = customerData['totalDebt'] ?? 0;
+        final currentPaidDebt = customerData['paidDebt'] ?? 0;
+        final currentRemainingDebt =
+            customerData['remainingDebt'] ??
+            (currentTotalDebt - currentPaidDebt);
 
         if (widget.payAll) {
-          // Pay all debts: remainingDebt becomes 0, paidDebt increases by currentRemainingDebt, totalDebt is preserved.
-          final addedPaid = currentRemainingDebt;
           transaction.update(customerRef, {
+            'totalDebt': 0,
             'remainingDebt': 0,
-            'paidDebt': FieldValue.increment(addedPaid),
+            'paidDebt': 0,
             'lastActivity': FieldValue.serverTimestamp(),
           });
 
@@ -81,6 +84,7 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
               'productId': debtData['productId'],
               'productName': debtData['productName'] ?? '',
               'quantity': debtData['quantity'],
+              'quantityUnit': debtData['quantityUnit'],
               'amount': debtData['amount'] ?? 0,
               'paymentDate': FieldValue.serverTimestamp(),
               'isFullPayment': true,
@@ -100,6 +104,7 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
             'productId': debt.productId,
             'productName': debt.productName,
             'quantity': debt.quantity,
+            'quantityUnit': debt.quantityUnit,
             'amount': debt.amount,
             'paymentDate': FieldValue.serverTimestamp(),
             'isFullPayment': false,
@@ -110,11 +115,21 @@ class _CustomerPaymentModalState extends State<CustomerPaymentModal> {
             double.infinity,
           );
 
-          transaction.update(customerRef, {
-            'remainingDebt': newRemaining,
-            'paidDebt': FieldValue.increment(debt.amount),
-            'lastActivity': FieldValue.serverTimestamp(),
-          });
+          if (newRemaining == 0) {
+            transaction.update(customerRef, {
+              'totalDebt': 0,
+              'remainingDebt': 0,
+              'paidDebt': 0,
+              'lastActivity': FieldValue.serverTimestamp(),
+            });
+          } else {
+            transaction.update(customerRef, {
+              'totalDebt': newRemaining,
+              'remainingDebt': newRemaining,
+              'paidDebt': FieldValue.increment(debt.amount),
+              'lastActivity': FieldValue.serverTimestamp(),
+            });
+          }
         }
       });
 

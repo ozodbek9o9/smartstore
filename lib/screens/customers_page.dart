@@ -31,10 +31,15 @@ class Customer {
 
   factory Customer.fromFirestore(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>? ?? {};
-    final total = (data['totalDebt'] ?? data['jamiQarz'] ?? 0) as num;
-    final paid = (data['paidDebt'] ?? data['tolaganQarz'] ?? 0) as num;
+    final storedTotal = (data['totalDebt'] ?? data['jamiQarz'] ?? 0) as num;
+    final storedPaid = (data['paidDebt'] ?? data['tolaganQarz'] ?? 0) as num;
     final remaining =
-        (data['remainingDebt'] ?? data['qolganQarz'] ?? (total - paid)) as num;
+        (data['remainingDebt'] ??
+                data['qolganQarz'] ??
+                (storedTotal - storedPaid))
+            as num;
+    final total = remaining > 0 ? remaining : 0;
+    final paid = remaining > 0 ? storedPaid : 0;
 
     DateTime parseDate(dynamic val) {
       if (val is Timestamp) return val.toDate();
@@ -144,7 +149,7 @@ class _CustomersPageState extends State<CustomersPage> {
       }
     }
 
-    NotificationController.instance.updateOverdueCustomers(alerts);
+    NotificationController.instance.updateCustomerAlerts(alerts);
   }
 
   void _showCustomerDetails(Customer c) {

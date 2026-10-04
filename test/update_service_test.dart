@@ -1,10 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:smart_store/models/update_info.dart';
 import 'package:smart_store/services/update_service.dart';
+import 'package:smart_store/widgets/update_dialog.dart';
 
 const _owner = 'smartstore-test';
 const _repository = 'desktop-client';
@@ -43,6 +45,29 @@ Map<String, dynamic> _release({
 }
 
 void main() {
+  testWidgets('checks for updates after the dialog finishes mounting', (
+    tester,
+  ) async {
+    final service = UpdateService(
+      owner: _owner,
+      repository: _repository,
+      currentVersion: '1.0.0',
+      client: MockClient((_) async => http.Response('', 404)),
+    );
+    addTearDown(service.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: UpdateDialog(service: service, currentVersion: '1.0.0'),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    expect(service.status, UpdateStatus.idle);
+    expect(tester.takeException(), isNull);
+  });
+
   test('compares full semantic versions, prereleases, and build metadata', () {
     expect(UpdateService.compareVersions('1.0.10', '1.0.9'), greaterThan(0));
     expect(UpdateService.compareVersions('2.0.0', '1.9.9'), greaterThan(0));

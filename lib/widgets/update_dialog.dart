@@ -36,7 +36,11 @@ class _UpdateDialogState extends State<UpdateDialog> {
   @override
   void initState() {
     super.initState();
-    unawaited(service.checkForUpdate(force: true));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(service.checkForUpdate(force: true));
+      }
+    });
   }
 
   UpdateService get service => widget.service;

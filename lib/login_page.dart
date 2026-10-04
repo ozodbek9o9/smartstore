@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'screens/layout_page.dart';
 import 'services/account_credential_security.dart';
 import 'services/connected_devices_service.dart';
+import 'services/local_session_service.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key, this.initialErrorKey});
@@ -68,7 +69,6 @@ class _LoginPageState extends State<LoginPage>
     debugPrint('AUTH_SUBMIT: username=$username');
 
     try {
-      await FirebaseAuth.instance.signOut();
       final customerLoginResult = await _tryCustomerLogin(username, password);
       if (customerLoginResult == true) {
         _openHome();
@@ -152,8 +152,20 @@ class _LoginPageState extends State<LoginPage>
       await _showBlockedDialog();
       return false;
     }
-    final credential = await FirebaseAuth.instance.signInAnonymously();
-    final user = credential.user;
+
+    final customerId = snapshot.docs.first.id;
+    var user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      final existingProfile = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      if (existingProfile.data()?['customerId'] != customerId) {
+        await FirebaseAuth.instance.signOut();
+        user = null;
+      }
+    }
+    user ??= (await FirebaseAuth.instance.signInAnonymously()).user;
     if (user == null) {
       throw StateError('Firebase anonymous sessiyasi ochilmadi.');
     }
@@ -175,22 +187,20 @@ class _LoginPageState extends State<LoginPage>
       'username': username,
       'usernameLower': username.toLowerCase(),
       'fullName': customer['name']?.toString() ?? 'SmartStore user',
-      'customerId': snapshot.docs.first.id,
+      'customerId': customerId,
       'isBlocked': false,
       'authProvider': 'anonymous_customer',
       'passwordProtectionEnabled': passwordIsProtected,
     }, SetOptions(merge: true));
 
     final deviceRegistered = await ConnectedDevicesService().registerDevice(
-      FirebaseFirestore.instance
-          .collection('customers')
-          .doc(snapshot.docs.first.id),
+      FirebaseFirestore.instance.collection('customers').doc(customerId),
     );
     if (!deviceRegistered) {
-      await FirebaseAuth.instance.signOut();
       _showError('devices.limit_reached'.tr());
       return false;
     }
+    await LocalSessionService.clearLoggedOut();
     return true;
   }
 

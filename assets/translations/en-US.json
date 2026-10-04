@@ -8,6 +8,7 @@
     "customers": "Customers",
     "finance": "Finance",
     "analytics": "Analytics",
+    "reports": "Reports",
     "settings": "Settings",
     "update": "Update",
     "logout": "Log Out",
@@ -23,6 +24,8 @@
     "offline": "Offline",
     "support": "Support Center",
     "notifications": "Notifications",
+    "sync_sales": "Sync pending sales",
+    "sync_retry": "Retry pending sync",
     "update_available": "Update available"
   },
   "update": {
@@ -55,7 +58,37 @@
     "customers": "Customers",
     "finance": "Finance",
     "analytics": "Analytics",
+    "reports": "Reports",
     "settings": "Settings"
+  },
+  "reports": {
+    "daily": "Daily",
+    "weekly": "Weekly",
+    "monthly": "Monthly",
+    "yearly": "Yearly",
+    "daily_comparison": "Yesterday vs Today",
+    "weekly_comparison": "Last week vs This week",
+    "monthly_comparison": "Last month vs This month",
+    "yearly_comparison": "Last year vs This year",
+    "yesterday": "Yesterday",
+    "today": "Today",
+    "last_week": "Last week",
+    "this_week": "This week",
+    "last_month": "Last month",
+    "this_month": "This month",
+    "last_year": "Last year",
+    "this_year": "This year",
+    "turnover": "Sales revenue",
+    "turnover_legend": "Sales revenue",
+    "net_profit": "Net profit",
+    "sold_products": "Products sold",
+    "orders": "Orders",
+    "daily_suffix": "vs yesterday",
+    "weekly_suffix": "vs last week",
+    "monthly_suffix": "vs last month",
+    "yearly_suffix": "vs last year",
+    "new": "New",
+    "load_error": "Could not load report data"
   },
   "selling_page": {
     "title": "Point of Sale",
@@ -72,11 +105,13 @@
     "total": "Total",
     "complete_sale": "Complete Sale",
     "product_not_found": "Product not found.",
+    "barcode_not_in_stock": "No product was found for this barcode. Check that it has been added to stock.",
     "out_of_stock": "This item is out of stock.",
     "insufficient_stock": "Not enough stock available.",
     "stock_left": "left in stock",
     "sale_failed": "Sale could not be completed.",
     "sale_completed": "Sale completed successfully.",
+    "sale_queued_offline": "Sale saved. It will sync automatically when you're online.",
     "remove": "Remove"
   },
   "selling_pos": {
@@ -136,6 +171,7 @@
   "offline_dialog": {
     "title": "No internet connection",
     "subtitle": "Changes won't sync until you're back online.",
+    "offline_use": "Use offline",
     "retry": "Retry"
   },
   "logout_dialog": {
@@ -389,9 +425,11 @@
     "add_debt_title": "Add New Debt",
     "debt_product_name": "Product Name",
     "debt_product_hint": "e.g. Coca Cola 1L",
+    "debt_quantity": "Quantity",
     "debt_price": "Price (UZS)",
     "btn_add": "Add",
     "err_required": "Required",
+    "err_invalid_quantity": "Enter a quantity greater than 0",
     "err_invalid_price": "Enter a valid price",
     "debt_added": "Debt added successfully"
   },

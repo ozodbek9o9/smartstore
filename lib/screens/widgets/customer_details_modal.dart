@@ -108,15 +108,24 @@ class _CustomerDetailsModalState extends State<CustomerDetailsModal> {
                                 .doc(widget.customer['id'])
                                 .snapshots(),
                             builder: (context, snapshot) {
-                              final currentTotalDebt =
-                                  snapshot.data?.data() != null
-                                  ? (snapshot.data!.data()
-                                            as Map<
-                                              String,
-                                              dynamic
-                                            >)['totalDebt'] ??
-                                        0
-                                  : widget.customer['totalDebt'] ?? 0;
+                              final customerData =
+                                  snapshot.data?.data()
+                                      as Map<String, dynamic>?;
+                              final storedTotal =
+                                  customerData?['totalDebt'] ??
+                                  widget.customer['totalDebt'] ??
+                                  0;
+                              final storedPaid =
+                                  customerData?['paidDebt'] ??
+                                  widget.customer['paidDebt'] ??
+                                  0;
+                              final balance =
+                                  customerData?['remainingDebt'] ??
+                                  widget.customer['remainingDebt'] ??
+                                  (storedTotal - storedPaid);
+                              final currentTotalDebt = balance > 0
+                                  ? balance
+                                  : 0;
                               return Text(
                                 '${"customers.col_total_debt".tr()}: ${NumberFormat.currency(locale: 'uz', symbol: 'UZS', decimalDigits: 0).format(currentTotalDebt)}',
                                 style: const TextStyle(
@@ -248,7 +257,14 @@ class _CustomerDetailsModalState extends State<CustomerDetailsModal> {
             return DataRow(
               cells: [
                 DataCell(Text(debt.productName)),
-                DataCell(Text(debt.quantity?.toString() ?? '-')),
+                DataCell(
+                  Text(
+                    CustomerDebtQuantity.format(
+                      debt.quantity,
+                      debt.quantityUnit,
+                    ),
+                  ),
+                ),
                 DataCell(
                   Text(
                     NumberFormat.currency(
@@ -333,7 +349,14 @@ class _CustomerDetailsModalState extends State<CustomerDetailsModal> {
                     ],
                   ),
                 ),
-                DataCell(Text(payment.quantity?.toString() ?? '-')),
+                DataCell(
+                  Text(
+                    CustomerDebtQuantity.format(
+                      payment.quantity,
+                      payment.quantityUnit,
+                    ),
+                  ),
+                ),
                 DataCell(
                   Text(
                     NumberFormat.currency(
@@ -402,14 +425,45 @@ class _AddDebtModal extends StatefulWidget {
 class _AddDebtModalState extends State<_AddDebtModal> {
   final _productNameController = TextEditingController();
   final _priceController = TextEditingController();
+  final _quantityController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  String _quantityUnit = CustomerDebtQuantity.kilograms;
   bool _isLoading = false;
 
   @override
   void dispose() {
     _productNameController.dispose();
     _priceController.dispose();
+    _quantityController.dispose();
     super.dispose();
+  }
+
+  num? _parseQuantity(String? value) {
+    if (value == null) return null;
+    return num.tryParse(value.trim().replaceAll(',', '.'));
+  }
+
+  String _formatInputQuantity(num value) {
+    final text = value.toString();
+    return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
+  }
+
+  void _selectQuantityUnit(String unit) {
+    if (unit == _quantityUnit) return;
+    final quantity = _parseQuantity(_quantityController.text);
+    final converted = quantity == null || quantity <= 0
+        ? null
+        : CustomerDebtQuantity.convert(
+            quantity,
+            fromUnit: _quantityUnit,
+            toUnit: unit,
+          );
+    setState(() {
+      _quantityUnit = unit;
+      if (converted != null) {
+        _quantityController.text = _formatInputQuantity(converted);
+      }
+    });
   }
 
   Future<void> _submit() async {
@@ -420,6 +474,11 @@ class _AddDebtModalState extends State<_AddDebtModal> {
       final productName = _productNameController.text.trim();
       final priceStr = _priceController.text.replaceAll(RegExp(r'[^0-9.]'), '');
       final price = num.tryParse(priceStr) ?? 0;
+      final enteredQuantity = _parseQuantity(_quantityController.text)!;
+      final quantity = CustomerDebtQuantity.normalize(
+        enteredQuantity,
+        unit: _quantityUnit,
+      );
 
       final customerId = widget.customer['id'];
       final customerRef = TenantFirestore.customers.doc(customerId);
@@ -428,23 +487,23 @@ class _AddDebtModalState extends State<_AddDebtModal> {
       await FirebaseFirestore.instance.runTransaction((transaction) async {
         final customerDoc = await transaction.get(customerRef);
         final data = customerDoc.data() ?? <String, dynamic>{};
-        final currentTotal = (data['totalDebt'] ?? 0) as num;
-        final currentRemaining = (data['remainingDebt'] ?? 0) as num;
-        final currentPaid = (data['paidDebt'] ?? 0) as num;
+        final storedTotal = (data['totalDebt'] ?? 0) as num;
+        final storedPaid = (data['paidDebt'] ?? 0) as num;
+        final storedRemaining =
+            (data['remainingDebt'] ?? (storedTotal - storedPaid)) as num;
+        final hasOpenDebt = storedRemaining > 0;
+        final currentRemaining = hasOpenDebt ? storedRemaining : 0;
+        final currentPaid = hasOpenDebt ? storedPaid : 0;
 
-        final newTotal = currentTotal + price;
         final newRemaining = currentRemaining + price;
+        final newTotal = newRemaining;
 
-        num newPaid;
-        if (newTotal == 0) {
-          newPaid = 0;
-        } else {
-          newPaid = currentPaid;
-        }
+        final newPaid = currentPaid;
 
         transaction.set(debtRef, {
           'productName': productName,
-          'quantity': null,
+          'quantity': quantity.value,
+          'quantityUnit': quantity.unit,
           'amount': price,
           'purchaseDate': FieldValue.serverTimestamp(),
           'productId': null,
@@ -612,6 +671,83 @@ class _AddDebtModalState extends State<_AddDebtModal> {
                     return 'customers.err_required'.tr().isEmpty
                         ? 'Required'
                         : 'customers.err_required'.tr();
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'customers.debt_quantity'.tr().isEmpty
+                          ? 'Quantity'
+                          : 'customers.debt_quantity'.tr(),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: textSecondary,
+                      ),
+                    ),
+                  ),
+                  ToggleButtons(
+                    isSelected: [
+                      _quantityUnit == CustomerDebtQuantity.kilograms,
+                      _quantityUnit == CustomerDebtQuantity.grams,
+                    ],
+                    onPressed: (index) => _selectQuantityUnit(
+                      index == 0
+                          ? CustomerDebtQuantity.kilograms
+                          : CustomerDebtQuantity.grams,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                    constraints: const BoxConstraints(
+                      minWidth: 52,
+                      minHeight: 40,
+                    ),
+                    selectedColor: Colors.white,
+                    fillColor: primary,
+                    color: textSecondary,
+                    children: const [Text('KG'), Text('Gr')],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              TextFormField(
+                controller: _quantityController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                style: TextStyle(fontSize: 14, color: textPrimary),
+                decoration: InputDecoration(
+                  hintText: '0',
+                  suffixText: _quantityUnit,
+                  filled: true,
+                  fillColor: inputBg,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: borderColor),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: borderColor),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: primary, width: 1.5),
+                  ),
+                ),
+                validator: (value) {
+                  final quantity = _parseQuantity(value);
+                  if (quantity == null || !quantity.isFinite || quantity <= 0) {
+                    return 'customers.err_invalid_quantity'.tr().isEmpty
+                        ? 'Enter a quantity greater than 0'
+                        : 'customers.err_invalid_quantity'.tr();
                   }
                   return null;
                 },
