@@ -88,7 +88,7 @@ class SmartStoreApp extends StatelessWidget {
       builder: (context, _) {
         return MaterialApp(
           navigatorKey: _rootNavigatorKey,
-          title: 'SmartStore Console',
+          title: 'SmartStore',
           debugShowCheckedModeBanner: false,
           locale: context.locale,
           supportedLocales: context.supportedLocales,
